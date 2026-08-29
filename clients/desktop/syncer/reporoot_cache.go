@@ -9,14 +9,14 @@ import (
 // Pass cfgIsRepo from netodrive.json "is_repo_root" when local_folder is the git clone.
 func PrepareRepoRootCache(localRoot, statePath string, cfgIsRepo *bool) {
 	key := normalizeRootKey(localRoot)
-	st, _ := LoadState(statePath, localRoot)
+	st, _ := LoadStateCached(statePath, localRoot)
 
 	if cfgIsRepo != nil {
 		repoRootCache[key] = *cfgIsRepo
 		if st.IsRepoRoot == nil {
 			b := *cfgIsRepo
 			st.IsRepoRoot = &b
-			_ = SaveState(statePath, st)
+			_ = SaveStateCached(statePath, st)
 		}
 		return
 	}
@@ -28,7 +28,7 @@ func PrepareRepoRootCache(localRoot, statePath string, cfgIsRepo *bool) {
 		if st.IsRepoRoot == nil {
 			b := v
 			st.IsRepoRoot = &b
-			_ = SaveState(statePath, st)
+			_ = SaveStateCached(statePath, st)
 		}
 		return
 	}
@@ -40,7 +40,7 @@ func PrepareRepoRootCache(localRoot, statePath string, cfgIsRepo *bool) {
 	repoRootCache[key] = v
 	b := v
 	st.IsRepoRoot = &b
-	_ = SaveState(statePath, st)
+	_ = SaveStateCached(statePath, st)
 }
 
 func normalizeRootKey(localRoot string) string {

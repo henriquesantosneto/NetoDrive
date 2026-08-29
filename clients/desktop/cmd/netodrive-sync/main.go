@@ -41,7 +41,7 @@ var (
 	syncFinished time.Time
 )
 
-const syncTimeout = 3 * time.Minute
+const syncTimeout = 90 * time.Second
 
 func onDemandEnabled(cfg Config) bool {
 	if cfg.OnDemand == nil {
@@ -115,7 +115,7 @@ func main() {
 		cfg.IntervalSec = 30
 	}
 	fmt.Printf("Pasta local de sync: %s\n", cfg.LocalFolder)
-	fmt.Fprintf(os.Stderr, "NetoDrive sync engine: fast-path CFAPI v4\n")
+	fmt.Fprintf(os.Stderr, "NetoDrive sync engine: fast-path CFAPI v5\n")
 	onDemand := onDemandEnabled(cfg)
 	if onDemand {
 		fmt.Println("Modo: sob demanda (placeholder — baixa ao abrir ou fixar)")
@@ -206,6 +206,7 @@ func main() {
 
 		fmt.Fprintf(os.Stderr, "[%s] syncing %s ↔ arvore da conta (raiz)\n", time.Now().Format(time.RFC3339), cfg.LocalFolder)
 
+		fmt.Fprintln(os.Stderr, "sync: chamando engine...")
 		errCh := make(chan error, 1)
 		go func() {
 			var err error
@@ -221,7 +222,7 @@ func main() {
 		select {
 		case err = <-errCh:
 		case <-time.After(syncTimeout):
-			fmt.Fprintf(os.Stderr, "sync timeout apos %s — use Liberar sync travado\n", syncTimeout)
+			fmt.Fprintf(os.Stderr, "sync timeout apos %s - use Liberar sync travado\n", syncTimeout)
 			return fmt.Errorf("sync timeout apos %s", syncTimeout)
 		}
 
@@ -293,6 +294,7 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 		syncMu.Lock()
 		syncRunning = false
 		syncMu.Unlock()
+		syncer.InvalidateStateCache(statePath)
 		writeJSON(w, map[string]any{"ok": true})
 	})
 	mux.HandleFunc("/api/hydrate", func(w http.ResponseWriter, r *http.Request) {
@@ -384,10 +386,6 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 	fmt.Printf("Painel NetoDrive: %s\n", addr)
 	_ = openURL(addr)
 
-	go func() {
-		time.Sleep(2 * time.Second)
-		_ = run()
-	}()
 	go func() {
 		t := time.NewTicker(time.Duration(cfg.IntervalSec) * time.Second)
 		defer t.Stop()

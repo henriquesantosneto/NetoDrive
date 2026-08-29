@@ -13,8 +13,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
+
+var folderSyncMu sync.Mutex
 
 type Client struct {
 	BaseURL  string
@@ -234,6 +237,11 @@ func FileHash(path string) (string, int64, error) {
 
 // SyncFolder mirrors localRoot with the account tree (placeholders when onDemand is true).
 func SyncFolder(c *Client, localRoot, statePath string, onDemand bool) error {
+	if !folderSyncMu.TryLock() {
+		return fmt.Errorf("sync interno ocupado (ciclo anterior ainda ativo)")
+	}
+	defer folderSyncMu.Unlock()
+
 	syncLog("sync: iniciando...")
 	SetPlaceholderBulkSync(true)
 	defer SetPlaceholderBulkSync(false)
@@ -266,7 +274,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	}
 	remotePrefix = strings.Trim(remotePrefix, "/")
 
-	st, err := LoadState(statePath, localRoot)
+	st, err := LoadStateCached(statePath, localRoot)
 	if err != nil {
 		return err
 	}
@@ -276,6 +284,17 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	syncLog("sync: verificando servidor...")
 	if err := c.Ping(); err != nil {
 		return fmt.Errorf("servidor indisponivel (%s): %w", c.BaseURL, err)
+	}
+
+	man, err := c.Manifest()
+	if err != nil {
+		return err
+	}
+	syncLog("sync: manifest com %d entradas", len(man.Files))
+	fp := manifestFingerprint(man)
+	if fp != "" && fp == st.LastManifestFP {
+		syncLog("sync: sem alteracoes remotas (skip scan CFAPI)")
+		return SaveStateCached(statePath, st)
 	}
 
 	syncLog("sync: aplicando changes remotos...")
@@ -290,16 +309,6 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		st.ChangeCursor = newCursor
 	}
 
-	man, err := c.Manifest()
-	if err != nil {
-		return err
-	}
-	syncLog("sync: manifest com %d entradas", len(man.Files))
-	fp := manifestFingerprint(man)
-	if fp != "" && fp == st.LastManifestFP {
-		syncLog("sync: sem alteracoes remotas (skip scan CFAPI)")
-		return SaveState(statePath, st)
-	}
 	remotePre := map[string]ManifestEntry{}
 	for _, e := range man.Files {
 		if e.IsDir {
@@ -473,7 +482,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	}
 
 	st.LastManifestFP = fp
-	return SaveState(statePath, st)
+	return SaveStateCached(statePath, st)
 }
 
 func hydratePinnedFromManifest(c *Client, localRoot string, st *SyncState, remote map[string]ManifestEntry, legacyRemotes map[string]string) error {
