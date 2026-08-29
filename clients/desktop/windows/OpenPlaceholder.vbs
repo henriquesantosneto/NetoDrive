@@ -1,4 +1,4 @@
-' NetoDrive — abre placeholder: baixa do servidor e abre com o app padrao.
+' NetoDrive - abre placeholder: baixa do servidor e abre com o app padrao.
 If WScript.Arguments.Count < 1 Then WScript.Quit 1
 Set sh = CreateObject("WScript.Shell")
 install = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\NetoDrive")

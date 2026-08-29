@@ -89,7 +89,7 @@ if ($dotnet) {
         & $regasm /codebase $shellDll | Out-Null
         Write-Host "Menu de contexto NetoDrive registrado."
       } else {
-        Write-Host "RegAsm nao encontrado — menu de contexto nao registrado."
+        Write-Host "RegAsm nao encontrado - menu de contexto nao registrado."
       }
     }
   }
