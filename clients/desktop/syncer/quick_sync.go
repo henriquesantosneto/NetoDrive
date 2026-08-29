@@ -53,3 +53,39 @@ func RemoteManifestChanged(c *Client, statePath, localRoot string) (bool, error)
 	fp := manifestFingerprint(man)
 	return fp != st.LastManifestFP, nil
 }
+
+// NeedsBackgroundSync reports whether a scheduled sync should run (CFAPI-safe checks).
+func NeedsBackgroundSync(c *Client, statePath, localRoot string) (bool, error) {
+	st, err := LoadStateCached(statePath, localRoot)
+	if err != nil {
+		return false, err
+	}
+	if st.LastManifestFP == "" {
+		return true, nil
+	}
+	if err := c.Ping(); err != nil {
+		return false, err
+	}
+	if HasPendingLocalChanges(localRoot) {
+		return true, nil
+	}
+	if HasPendingPlaceholderQueue(localRoot) {
+		return true, nil
+	}
+	man, err := c.Manifest()
+	if err != nil {
+		return false, err
+	}
+	fp := manifestFingerprint(man)
+	if fp != st.LastManifestFP {
+		return true, nil
+	}
+	if remoteFilesNeedMaterialization(localRoot, man) {
+		return true, nil
+	}
+	localDirs, err := scanLocalDirsForSync(localRoot)
+	if err == nil && dirsChanged(localDirs, st.KnownDirs) {
+		return true, nil
+	}
+	return false, nil
+}

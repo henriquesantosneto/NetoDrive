@@ -198,3 +198,9 @@ func shouldRematerializePlaceholder(localRoot, rel string, pending map[string]bo
 	}
 	return isPlaceholderQueuedRel(localRoot, rel)
 }
+
+func HasPendingPlaceholderQueue(localRoot string) bool {
+	path := placeholderQueuePath(localRoot)
+	lines, err := readPlaceholderQueueLines(path)
+	return err == nil && len(lines) > 0
+}

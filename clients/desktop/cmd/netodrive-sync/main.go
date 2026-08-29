@@ -18,7 +18,7 @@ import (
 	"github.com/netodrive/desktop/syncer"
 )
 
-const buildVersion = "fast-path-cfapi-v11"
+const buildVersion = "fast-path-cfapi-v12"
 
 type Config struct {
 	ServerURL   string `json:"server_url"`
@@ -126,7 +126,7 @@ func main() {
 	fmt.Fprintf(os.Stderr, "NetoDrive sync engine: %s\n", buildVersion)
 	cfapiActive := syncer.CfapiProviderInstalled()
 	if cfapiActive {
-		fmt.Fprintf(os.Stderr, "CFAPI ativo: sync automatico desligado (use Sincronizar agora no painel)\n")
+		fmt.Fprintf(os.Stderr, "CFAPI ativo: sync automatico a cada %ds (manifest, deletes locais, placeholders)\n", cfg.IntervalSec)
 	}
 	onDemand := onDemandEnabled(cfg)
 	if onDemand {
@@ -271,14 +271,49 @@ func main() {
 		}
 		return
 	}
-	if cfapiActive {
-		select {}
+	if *ui {
+		startControlPanel(cfg, *cfgPath, client, onDemand, cfapiActive, run)
+		return
 	}
-	t := time.NewTicker(time.Duration(cfg.IntervalSec) * time.Second)
-	defer t.Stop()
-	for range t.C {
-		_ = run()
+	startBackgroundSync(cfg, cfapiActive, client, statePath, run)
+	select {}
+}
+
+func syncPollInterval(cfg Config) time.Duration {
+	sec := cfg.IntervalSec
+	if sec <= 0 {
+		sec = 30
 	}
+	interval := time.Duration(sec) * time.Second
+	if interval < 30*time.Second {
+		interval = 30 * time.Second
+	}
+	return interval
+}
+
+func startBackgroundSync(cfg Config, cfapiActive bool, client *syncer.Client, statePath string, run func() error) {
+	interval := syncPollInterval(cfg)
+	go func() {
+		time.Sleep(3 * time.Second)
+		if err := run(); err != nil && !strings.Contains(err.Error(), "sync ja em andamento") {
+			fmt.Fprintf(os.Stderr, "sync inicial: %v\n", err)
+		}
+	}()
+	go func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for range t.C {
+			if cfapiActive {
+				need, err := syncer.NeedsBackgroundSync(client, statePath, cfg.LocalFolder)
+				if err != nil || !need {
+					continue
+				}
+			}
+			if err := run(); err != nil && strings.Contains(err.Error(), "sync ja em andamento") {
+				continue
+			}
+		}
+	}()
 }
 
 func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDemand bool, cfapiActive bool, run func() error) {
@@ -300,15 +335,15 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 			serverOK = true
 		}
 		intervalSec := cfg.IntervalSec
-		autoSync := !cfapiActive
-		if cfapiActive {
-			intervalSec = 0
+		if intervalSec <= 0 {
+			intervalSec = 30
 		}
 		writeJSON(w, map[string]any{
 			"server_url":         cfg.ServerURL,
 			"local_folder":       cfg.LocalFolder,
 			"interval_sec":       intervalSec,
-			"auto_sync":          autoSync,
+			"auto_sync":          true,
+			"cfapi_active":       cfapiActive,
 			"engine_version":     buildVersion,
 			"on_demand":          onDemand,
 			"web_url":            cfg.ServerURL,
@@ -420,33 +455,7 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 	fmt.Printf("Painel NetoDrive: %s\n", addr)
 	_ = openURL(addr)
 
-	if !cfapiActive {
-		go func() {
-			t := time.NewTicker(time.Duration(cfg.IntervalSec) * time.Second)
-			defer t.Stop()
-			for range t.C {
-				if err := run(); err != nil && strings.Contains(err.Error(), "sync ja em andamento") {
-					continue
-				}
-			}
-		}()
-	} else {
-		// CFAPI: poll remote manifest only (no folder scan unless something changed).
-		go func() {
-			t := time.NewTicker(60 * time.Second)
-			defer t.Stop()
-			for range t.C {
-				changed, err := syncer.RemoteManifestChanged(client, statePath, cfg.LocalFolder)
-				pending := syncer.HasPendingLocalChanges(cfg.LocalFolder)
-				if err != nil || (!changed && !pending) {
-					continue
-				}
-				if err := run(); err != nil && strings.Contains(err.Error(), "sync ja em andamento") {
-					continue
-				}
-			}
-		}()
-	}
+	startBackgroundSync(cfg, cfapiActive, client, statePath, run)
 
 	if err := http.Serve(ln, mux); err != nil {
 		fatal(err)
@@ -454,13 +463,14 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 }
 
 func controlPanelIntervalLabel(intervalSec int, cfapiActive bool) string {
-	if cfapiActive {
-		return "Manual (CFAPI)"
-	}
 	if intervalSec <= 0 {
 		intervalSec = 30
 	}
-	return fmt.Sprintf("%d s", intervalSec)
+	label := fmt.Sprintf("%d s", intervalSec)
+	if cfapiActive {
+		return label + " (CFAPI)"
+	}
+	return label
 }
 
 func controlPanelHTML(cfg Config, onDemand bool, cfapiActive bool) string {
@@ -552,7 +562,7 @@ if(s.server_online){el.className='ok';el.textContent='Servidor online: '+s.serve
 else{el.className='bad';el.textContent='Servidor OFFLINE em '+s.server_url+' — inicie o NetoDrive server ou corrija server_url no netodrive.json'}
 if(s.sync_stuck){el.className='bad';el.textContent+=' — SYNC TRAVADO: feche e reabra o NetoDrive Sync ou clique Liberar sync'}
 else if(s.sync_running){el.textContent+=' (sync em andamento)'}
-if(iv){iv.textContent=s.auto_sync===false?'Manual (CFAPI)':((s.interval_sec||30)+' s')}
+if(iv){iv.textContent=(s.interval_sec||30)+' s'+(s.cfapi_active?' (CFAPI)':'')}
 }catch(e){el.className='bad';el.textContent='Nao foi possivel verificar o servidor.'}}
 async function resetSync(){const m=document.getElementById('msg');await post('/api/sync-reset');m.textContent='Sync liberado. Tente sincronizar de novo.';refreshServer()}
 refreshServer();setInterval(refreshServer,15000);
