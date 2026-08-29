@@ -8,6 +8,85 @@ $InstallDir = Join-Path $env:LOCALAPPDATA "NetoDrive"
 $ConfigDir = Join-Path $env:APPDATA "NetoDrive"
 $SyncExe = Join-Path $InstallDir "netodrive-sync.exe"
 
+function Get-RegAsmPath {
+  $regasm = Join-Path ${env:WINDIR} "Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe"
+  if (Test-Path $regasm) { return $regasm }
+  return $null
+}
+
+function Unregister-NetoDriveShell {
+  param([string]$ShellDll)
+  if (-not (Test-Path -LiteralPath $ShellDll)) { return }
+  $regasm = Get-RegAsmPath
+  if (-not $regasm) { return }
+  Write-Host "Desregistrando menu de contexto anterior..."
+  $prevEA = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  & $regasm /u /codebase $ShellDll 2>$null | Out-Null
+  $ErrorActionPreference = $prevEA
+}
+
+function Restart-ExplorerForShellUpdate {
+  Write-Host "Reiniciando Explorer para liberar NetoDriveShell.dll..."
+  Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 2
+  Start-Process explorer.exe
+  Start-Sleep -Seconds 2
+}
+
+function Install-NetoDriveShellBuild {
+  param(
+    [string]$ShellDir,
+    [string]$InstallDir
+  )
+  $shellOut = Join-Path $InstallDir "shell"
+  $shellStaging = Join-Path $env:TEMP ("NetoDriveShell-publish-{0}" -f [Guid]::NewGuid().ToString('N'))
+  $existingDll = Join-Path $shellOut "NetoDriveShell.dll"
+
+  Unregister-NetoDriveShell -ShellDll $existingDll
+
+  Push-Location $ShellDir
+  try {
+    dotnet publish -f net48 -c Release -r win-x64 --self-contained false -o $shellStaging
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao compilar NetoDriveShell" }
+  } finally {
+    Pop-Location
+  }
+
+  New-Item -ItemType Directory -Force -Path $shellOut | Out-Null
+
+  $maxRetries = 5
+  for ($i = 1; $i -le $maxRetries; $i++) {
+    try {
+      Copy-Item -Path (Join-Path $shellStaging "*") -Destination $shellOut -Recurse -Force -ErrorAction Stop
+      break
+    } catch {
+      if ($i -eq 1) {
+        Restart-ExplorerForShellUpdate
+      }
+      if ($i -eq $maxRetries) {
+        Remove-Item $shellStaging -Recurse -Force -ErrorAction SilentlyContinue
+        throw "Nao foi possivel atualizar NetoDriveShell.dll (arquivo em uso). Feche o Explorer e rode Install-NetoDrive.ps1 de novo."
+      }
+      Write-Host "Aguardando liberacao de NetoDriveShell.dll (tentativa $i/$maxRetries)..."
+      Start-Sleep -Seconds 2
+    }
+  }
+
+  Remove-Item $shellStaging -Recurse -Force -ErrorAction SilentlyContinue
+
+  $shellDll = Join-Path $shellOut "NetoDriveShell.dll"
+  if (-not (Test-Path $shellDll)) { return }
+
+  $regasm = Get-RegAsmPath
+  if ($regasm) {
+    & $regasm /codebase $shellDll | Out-Null
+    Write-Host "Menu de contexto NetoDrive registrado."
+  } else {
+    Write-Host "RegAsm nao encontrado - menu de contexto nao registrado."
+  }
+}
+
 function Get-NetoDriveLocalFolder {
   param([string]$CfgPath)
   if (Test-Path $SyncExe) {
@@ -147,20 +226,7 @@ if ($dotnet) {
     }
   }
   if (Test-Path $shellDir) {
-    Push-Location $shellDir
-    dotnet publish -f net48 -c Release -r win-x64 --self-contained false -o (Join-Path $InstallDir "shell")
-    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "Falha ao compilar NetoDriveShell" }
-    Pop-Location
-    $shellDll = Join-Path $InstallDir "shell\NetoDriveShell.dll"
-    if (Test-Path $shellDll) {
-      $regasm = Join-Path ${env:WINDIR} "Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe"
-      if (Test-Path $regasm) {
-        & $regasm /codebase $shellDll | Out-Null
-        Write-Host "Menu de contexto NetoDrive registrado."
-      } else {
-        Write-Host "RegAsm nao encontrado - menu de contexto nao registrado."
-      }
-    }
+    Install-NetoDriveShellBuild -ShellDir $shellDir -InstallDir $InstallDir
   }
 } else {
   Write-Host "AVISO: .NET SDK nao encontrado. Integracao nativa (clique/manter no dispositivo) nao instalada."
