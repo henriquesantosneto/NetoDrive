@@ -192,8 +192,39 @@ internal sealed class ProviderHost : IDisposable
         if (!path.StartsWith(_cfg.LocalFolder, StringComparison.OrdinalIgnoreCase))
             return;
         var rel = Path.GetRelativePath(_cfg.LocalFolder, path).Replace('\\', '/').Trim('/');
-        if (!string.IsNullOrEmpty(rel) && rel != ".")
+        if (!string.IsNullOrEmpty(rel) && rel != "." && !IsPendingRenamePath(_cfg, rel))
             LocalChangesQueue.EnqueueModify(_cfg, rel);
+    }
+
+    private static bool IsPendingRenamePath(AppConfig cfg, string rel)
+    {
+        rel = rel.Replace('\\', '/').Trim('/');
+        var path = LocalChangesQueue.PendingRenamesPath(cfg);
+        if (!File.Exists(path))
+            return false;
+        foreach (var line in File.ReadAllLines(path))
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+            try
+            {
+                using var doc = JsonDocument.Parse(line);
+                var from = doc.RootElement.TryGetProperty("from", out var f) ? f.GetString() ?? "" : "";
+                var to = doc.RootElement.TryGetProperty("to", out var t) ? t.GetString() ?? "" : "";
+                from = from.Replace('\\', '/').Trim('/');
+                to = to.Replace('\\', '/').Trim('/');
+                if (string.Equals(rel, from, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(rel, to, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                // skip bad line
+            }
+        }
+        return false;
     }
 
     private void HandleNotifyDehydrate(in CF_CALLBACK_INFO info)
@@ -234,32 +265,13 @@ internal sealed class ProviderHost : IDisposable
             !string.IsNullOrEmpty(toRel) && toRel != "." && !string.Equals(fromRel, toRel, StringComparison.OrdinalIgnoreCase))
         {
             PlaceholderCatalog.MoveMeta(_cfg, fromRel, toRel);
+            PlaceholderQueue.RenameRel(_cfg, fromRel, toRel);
+            LocalChangesQueue.ClearModify(_cfg, fromRel);
+            LocalChangesQueue.ClearModify(_cfg, toRel);
             LocalChangesQueue.EnqueueRename(_cfg, fromRel, toRel);
-            TryRenameRemote(fromRel, toRel);
         }
 
         AckRename(in info, (NTStatus)0);
-    }
-
-    private void TryRenameRemote(string fromRel, string toRel)
-    {
-        try
-        {
-            var body = JsonSerializer.Serialize(new { from = fromRel, to = toRel });
-            using var req = new HttpRequestMessage(HttpMethod.Post,
-                $"{_cfg.ServerURL.TrimEnd('/')}/api/sync/rename")
-            {
-                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
-            };
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _cfg.Token);
-            using var res = _http.Send(req);
-            res.EnsureSuccessStatusCode();
-            Console.WriteLine($"rename remoto ok: {fromRel} -> {toRel}");
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"rename remoto {fromRel}->{toRel}: {ex.Message}");
-        }
     }
 
     private static string ResolveRenameTarget(string fromRel, string targetPath, string localFolder)

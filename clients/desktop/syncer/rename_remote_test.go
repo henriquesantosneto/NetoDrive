@@ -23,7 +23,9 @@ func TestRenameFallsBackWhenAPIMissing(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"path":"abc.txt","hash":"h1","size":3}`))
 		case r.URL.Path == "/api/files/a.txt" && r.Method == http.MethodDelete:
-			deleted = "a.txt"
+			t.Fatal("rename should not soft-delete into trash")
+		case strings.HasPrefix(r.URL.Path, "/api/sync/remove/"):
+			deleted = strings.TrimPrefix(r.URL.Path, "/api/sync/remove/")
 			w.WriteHeader(http.StatusOK)
 		default:
 			http.NotFound(w, r)

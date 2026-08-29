@@ -125,3 +125,20 @@ func TestPlanSyncCFAPIPendingDeleteStillDeletesRemote(t *testing.T) {
 		t.Fatalf("should not download when user deleted locally: %#v", p)
 	}
 }
+
+func TestPlanSyncRenamedAwayDeletesStaleRemote(t *testing.T) {
+	local := map[string]string{"new.txt": "aaa"}
+	remote := map[string]string{"old.txt": "aaa", "new.txt": "aaa"}
+	known := map[string]string{"new.txt": "aaa"}
+
+	p := planSync(local, remote, known, PlanSyncOptions{})
+	if len(p.deleteRemote) != 1 || p.deleteRemote[0] != "old.txt" {
+		t.Fatalf("expected delete of stale old path, got %#v", p)
+	}
+	if len(p.download) != 0 {
+		t.Fatalf("should not re-download renamed-away path: %#v", p)
+	}
+	if len(p.upload) != 0 {
+		t.Fatalf("should not upload during rename cleanup: %#v", p)
+	}
+}
