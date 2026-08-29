@@ -370,7 +370,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		if ok && re.Hash == local[rel] {
 			continue
 		}
-		if IsPlaceholderFile(localPath) {
+		if IsPlaceholderRel(localRoot, rel) {
 			if ok {
 				fmt.Printf("☁ atualiza placeholder %s\n", rel)
 				if err := writePlaceholder(localRoot, rel, placeholderMeta{Hash: re.Hash, Size: re.Size}); err != nil {
@@ -456,7 +456,7 @@ func hydratePinnedFromManifest(c *Client, localRoot string, st *SyncState, remot
 			continue
 		}
 		localPath := placeholderPath(localRoot, rel)
-		if !IsPlaceholderFile(localPath) {
+		if !IsPlaceholderRel(localRoot, rel) {
 			if h, _, err := FileHash(localPath); err == nil && h == e.Hash {
 				continue
 			}
@@ -479,7 +479,7 @@ func rebuildEntries(localRoot string, local map[string]string, remote map[string
 		entry := FileEntry{Hash: hash, Availability: AvHydrated}
 		if isPinnedPath(st.Pinned, rel) {
 			entry.Availability = AvPinned
-		} else if IsPlaceholderFile(placeholderPath(localRoot, rel)) {
+		} else if IsPlaceholderRel(localRoot, rel) {
 			entry.Availability = AvPlaceholder
 		}
 		if re, ok := remote[rel]; ok {

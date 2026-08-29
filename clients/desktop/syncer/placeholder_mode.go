@@ -14,6 +14,15 @@ func placeholderUpToDate(localRoot, rel string, meta placeholderMeta) bool {
 	if !ok || stored.Hash != meta.Hash {
 		return false
 	}
+	if isPlaceholderQueued(localRoot, rel, meta.Hash) {
+		return true
+	}
+	if cfapiProviderActive() {
+		if _, err := os.Stat(placeholderPath(localRoot, rel)); err == nil {
+			return true
+		}
+		return false
+	}
 	content := placeholderPath(localRoot, rel)
 	if _, err := os.Stat(content); err == nil {
 		if IsPlaceholderMagicFile(content) || isPlatformPlaceholder(content) {

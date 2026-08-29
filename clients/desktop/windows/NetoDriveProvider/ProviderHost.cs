@@ -21,6 +21,7 @@ internal sealed class ProviderHost : IDisposable
     private CF_CONNECTION_KEY _connection;
     private GCHandle _callbackTableHandle;
     private bool _connected;
+    private Timer? _queueTimer;
 
     internal ProviderHost(AppConfig cfg) => _cfg = cfg;
 
@@ -59,6 +60,20 @@ internal sealed class ProviderHost : IDisposable
                 "Rode: netodrive-provider.exe -register -config \"%APPDATA%\\NetoDrive\\netodrive.json\"");
         }
         _connected = true;
+        PlaceholderQueue.ProcessPending(_cfg);
+        _queueTimer = new Timer(_ => ProcessQueueSafe(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private void ProcessQueueSafe()
+    {
+        try
+        {
+            PlaceholderQueue.ProcessPending(_cfg);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"placeholder queue: {ex.Message}");
+        }
     }
 
     private static void OnFetchData(in CF_CALLBACK_INFO info, in CF_CALLBACK_PARAMETERS parameters)
@@ -163,6 +178,7 @@ internal sealed class ProviderHost : IDisposable
 
     public void Dispose()
     {
+        _queueTimer?.Dispose();
         if (_connected)
         {
             CfDisconnectSyncRoot(_connection);

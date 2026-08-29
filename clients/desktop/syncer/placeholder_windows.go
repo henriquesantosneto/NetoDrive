@@ -54,6 +54,10 @@ func providerExe() string {
 	return ""
 }
 
+func cfapiProviderActive() bool {
+	return providerExe() != ""
+}
+
 func writePlatformPlaceholder(localRoot, rel string, meta placeholderMeta) error {
 	if err := writePlaceholderMeta(localRoot, rel, meta); err != nil {
 		return err
@@ -61,34 +65,17 @@ func writePlatformPlaceholder(localRoot, rel string, meta placeholderMeta) error
 	if placeholderUpToDate(localRoot, rel, meta) {
 		return nil
 	}
-	// Bulk sync: meta + magic file only. Spawning CFAPI/PowerShell per file freezes Explorer.
+	// Never write into the CFAPI sync root or spawn a second provider process (deadlocks Explorer).
+	if cfapiProviderActive() {
+		return enqueuePlaceholder(localRoot, rel, meta)
+	}
 	if placeholderBulkSync {
 		return writePlaceholderMagic(localRoot, rel, meta)
-	}
-	if exe := providerExe(); exe != "" {
-		cfg := defaultConfigForProvider()
-		args := []string{
-			"-placeholder", filepath.ToSlash(rel), meta.Hash, fmt.Sprintf("%d", meta.Size),
-		}
-		if cfg != "" {
-			args = append(args, "-config", cfg)
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, exe, args...)
-		if out, err := cmd.CombinedOutput(); err == nil {
-			_ = os.Remove(placeholderDiskPath(localRoot, rel))
-			_ = os.Remove(placeholderPath(localRoot, rel))
-			return nil
-		} else {
-			fmt.Fprintf(os.Stderr, "cfapi placeholder %s: %v (%s)\n", rel, err, strings.TrimSpace(string(out)))
-		}
 	}
 	lnk := placeholderDiskPath(localRoot, rel)
 	if err := os.MkdirAll(filepath.Dir(lnk), 0o755); err != nil {
 		return err
 	}
-	// Remove magic-file legacy placeholder at content path.
 	_ = os.Remove(placeholderPath(localRoot, rel))
 
 	vbs := openPlaceholderVBS

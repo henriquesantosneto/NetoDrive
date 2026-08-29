@@ -32,6 +32,14 @@ func IsPlaceholderFile(path string) bool {
 	return isPlatformPlaceholder(path)
 }
 
+// IsPlaceholderRel reports cloud placeholders tracked by sidecar meta or on disk.
+func IsPlaceholderRel(localRoot, rel string) bool {
+	if _, ok := readPlaceholderMetaForRel(localRoot, rel); ok {
+		return true
+	}
+	return IsPlaceholderFile(placeholderPath(localRoot, rel))
+}
+
 func readPlaceholderMeta(path string) (placeholderMeta, bool) {
 	if meta, ok := readPlaceholderMetaFile(path); ok {
 		return meta, true

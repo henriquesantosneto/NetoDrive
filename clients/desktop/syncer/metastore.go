@@ -23,14 +23,19 @@ func metaRelFromKey(key string) string {
 	return strings.ReplaceAll(key, "__", "/")
 }
 
-// Meta lives outside the CFAPI sync root (mkdir .netodrive inside sync root fails on Windows).
-func metaStoreRoot(localRoot string) string {
+// syncRootDataID is a stable id for per-sync-root data under %APPDATA%/NetoDrive/.
+func syncRootDataID(localRoot string) string {
 	abs, err := filepath.Abs(localRoot)
 	if err != nil {
 		abs = localRoot
 	}
 	sum := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(abs))))
-	id := hex.EncodeToString(sum[:8])
+	return hex.EncodeToString(sum[:8])
+}
+
+// Meta lives outside the CFAPI sync root (mkdir .netodrive inside sync root fails on Windows).
+func metaStoreRoot(localRoot string) string {
+	id := syncRootDataID(localRoot)
 	appData := os.Getenv("APPDATA")
 	if appData == "" {
 		home, _ := os.UserHomeDir()
