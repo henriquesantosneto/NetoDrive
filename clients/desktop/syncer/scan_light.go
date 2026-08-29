@@ -29,13 +29,13 @@ func scanLocalFilesLight(localRoot string, known map[string]string) (map[string]
 			if st.IsDir() {
 				continue
 			}
-			if isPlatformPlaceholder(path) {
+			if isCloudOnlyPlaceholder(localRoot, rel) {
 				if meta, ok := readPlaceholderMetaForRel(localRoot, rel); ok {
 					local[rel] = meta.Hash
 				}
 				continue
 			}
-			h, _, err := FileHash(path)
+			h, err := localHashForSync(localRoot, rel)
 			if err != nil {
 				continue
 			}
@@ -118,13 +118,13 @@ func scanShallowNewFiles(localRoot string, existing map[string]string) (map[stri
 		if _, ok := existing[rel]; ok {
 			return nil
 		}
-		if isPlatformPlaceholder(path) {
+		if isCloudOnlyPlaceholder(localRoot, rel) {
 			if meta, ok := readPlaceholderMetaForPath(localRoot, path, rel); ok {
 				found[rel] = meta.Hash
 			}
 			return nil
 		}
-		h, _, err := FileHash(path)
+		h, err := localHashForSync(localRoot, rel)
 		if err != nil {
 			return nil
 		}

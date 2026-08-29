@@ -18,6 +18,7 @@ internal sealed class ProviderHost : IDisposable
     private static readonly CF_CALLBACK FetchPlaceholdersCb = OnFetchPlaceholders;
     private static readonly CF_CALLBACK FetchDataCb = OnFetchData;
     private static readonly CF_CALLBACK NotifyDeleteCb = OnNotifyDelete;
+    private static readonly CF_CALLBACK NotifyUpdateCb = OnNotifyUpdate;
     private static readonly CF_CALLBACK NotifyDehydrateCb = OnNotifyDehydrate;
 
     private readonly AppConfig _cfg;
@@ -53,6 +54,11 @@ internal sealed class ProviderHost : IDisposable
             },
             new()
             {
+                Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_UPDATE,
+                Callback = NotifyUpdateCb,
+            },
+            new()
+            {
                 Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_DEHYDRATE,
                 Callback = NotifyDehydrateCb,
             },
@@ -75,8 +81,8 @@ internal sealed class ProviderHost : IDisposable
                 "Rode: netodrive-provider.exe -register -config \"%APPDATA%\\NetoDrive\\netodrive.json\"");
         }
         _connected = true;
-        // Defer queue drain so Explorer can connect without CfCreatePlaceholders contention.
-        _queueTimer = new Timer(_ => ProcessQueueSafe(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(2));
+        ProcessQueueSafe();
+        _queueTimer = new Timer(_ => ProcessQueueSafe(), null, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(500));
     }
 
     private void ProcessQueueSafe()
@@ -131,16 +137,52 @@ internal sealed class ProviderHost : IDisposable
         }
     }
 
+    private static void OnNotifyUpdate(in CF_CALLBACK_INFO info, in CF_CALLBACK_PARAMETERS parameters)
+    {
+        try
+        {
+            _active?.HandleNotifyUpdate(info);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"NOTIFY_UPDATE erro: {ex.Message}");
+        }
+    }
+
     private static void OnNotifyDehydrate(in CF_CALLBACK_INFO info, in CF_CALLBACK_PARAMETERS parameters)
     {
         try
         {
-            AckDehydrate(in info, (NTStatus)0);
+            _active?.HandleNotifyDehydrate(info);
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"NOTIFY_DEHYDRATE erro: {ex.Message}");
         }
+    }
+
+    private void HandleNotifyUpdate(in CF_CALLBACK_INFO info)
+    {
+        var path = info.VolumeDosName + info.NormalizedPath;
+        if (!path.StartsWith(_cfg.LocalFolder, StringComparison.OrdinalIgnoreCase))
+            return;
+        var rel = Path.GetRelativePath(_cfg.LocalFolder, path).Replace('\\', '/').Trim('/');
+        if (!string.IsNullOrEmpty(rel) && rel != ".")
+            LocalChangesQueue.EnqueueModify(_cfg, rel);
+    }
+
+    private void HandleNotifyDehydrate(in CF_CALLBACK_INFO info)
+    {
+        var path = info.VolumeDosName + info.NormalizedPath;
+        if (path.StartsWith(_cfg.LocalFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            var rel = Path.GetRelativePath(_cfg.LocalFolder, path).Replace('\\', '/').Trim('/');
+            if (!string.IsNullOrEmpty(rel) && rel != ".")
+            {
+                PlaceholderCatalog.SetCloudOnly(_cfg, rel, true);
+            }
+        }
+        AckDehydrate(in info, (NTStatus)0);
     }
 
     private void HandleNotifyDelete(in CF_CALLBACK_INFO info)

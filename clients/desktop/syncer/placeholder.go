@@ -11,8 +11,9 @@ import (
 const placeholderMagic = "NETODRIVE_PLACEHOLDER_v1\n"
 
 type placeholderMeta struct {
-	Hash string `json:"hash"`
-	Size int64  `json:"size"`
+	Hash      string `json:"hash"`
+	Size      int64  `json:"size"`
+	CloudOnly *bool  `json:"cloud_only,omitempty"`
 }
 
 func placeholderPath(localRoot, rel string) string {
@@ -32,12 +33,9 @@ func IsPlaceholderFile(path string) bool {
 	return isPlatformPlaceholder(path)
 }
 
-// IsPlaceholderRel reports cloud placeholders tracked by sidecar meta or on disk.
+// IsPlaceholderRel reports cloud-only placeholders (dehydrated), not hydrated local copies.
 func IsPlaceholderRel(localRoot, rel string) bool {
-	if _, ok := readPlaceholderMetaForRel(localRoot, rel); ok {
-		return true
-	}
-	return IsPlaceholderFile(placeholderPath(localRoot, rel))
+	return isCloudOnlyPlaceholder(localRoot, rel)
 }
 
 func readPlaceholderMeta(path string) (placeholderMeta, bool) {
@@ -201,6 +199,7 @@ func PinLocalPath(c *Client, localRoot, statePath, target string, onDemand bool)
 			}
 			st.Entries[rel] = FileEntry{Hash: e.Hash, Size: e.Size, Availability: AvPinned}
 			st.Known[rel] = e.Hash
+			_ = writeHydratedMeta(localRoot, rel, placeholderMeta{Hash: e.Hash, Size: e.Size})
 			continue
 		}
 		if err := HydratePath(c, localRoot, statePath, rel); err != nil {
@@ -254,7 +253,7 @@ func UnpinLocalPath(c *Client, localRoot, statePath, target string, onDemand boo
 				}
 				continue
 			}
-			if err := writePlaceholderMeta(localRoot, rel, placeholderMeta{Hash: e.Hash, Size: e.Size}); err != nil {
+			if err := writeCloudOnlyMeta(localRoot, rel, placeholderMeta{Hash: e.Hash, Size: e.Size}); err != nil {
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -366,6 +365,15 @@ func HydratePath(c *Client, localRoot, statePath, rel string) error {
 		}
 		st.Entries[rel] = FileEntry{Hash: hash, Availability: avail}
 		st.Known[rel] = hash
+		size := int64(0)
+		for _, e := range man.Files {
+			nrel, _ := localRelFromRemote(e.Path)
+			if nrel == rel {
+				size = e.Size
+				break
+			}
+		}
+		_ = writeHydratedMeta(localRoot, rel, placeholderMeta{Hash: hash, Size: size})
 		return SaveStateCached(statePath, st)
 	}
 

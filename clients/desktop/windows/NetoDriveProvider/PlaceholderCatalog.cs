@@ -63,6 +63,36 @@ internal static class PlaceholderCatalog
         return result;
     }
 
+    internal static void SetCloudOnly(AppConfig cfg, string rel, bool cloudOnly)
+    {
+        rel = rel.Replace('\\', '/').Trim('/');
+        if (string.IsNullOrEmpty(rel))
+            return;
+        var key = MetaKeyFromRel(rel);
+        var path = Path.Combine(MetaStoreRoot(cfg), key + ".json");
+        if (!File.Exists(path))
+            return;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            var hash = doc.RootElement.TryGetProperty("hash", out var h) ? h.GetString() ?? "" : "";
+            var size = doc.RootElement.TryGetProperty("size", out var s) && s.TryGetInt64(out var n) ? n : 0L;
+            if (hash.Length == 0)
+                return;
+            var payload = JsonSerializer.Serialize(new
+            {
+                hash,
+                size,
+                cloud_only = cloudOnly,
+            });
+            File.WriteAllText(path, payload);
+        }
+        catch (IOException ex)
+        {
+            Console.Error.WriteLine($"set cloud_only {rel}: {ex.Message}");
+        }
+    }
+
     internal static void RemoveMeta(AppConfig cfg, string rel)
     {
         rel = rel.Replace('\\', '/').Trim('/');

@@ -61,6 +61,7 @@ func cfapiProviderActive() bool {
 func CfapiProviderInstalled() bool { return cfapiProviderActive() }
 
 func writePlatformPlaceholder(localRoot, rel string, meta placeholderMeta) error {
+	meta.CloudOnly = boolPtr(true)
 	if err := writePlaceholderMeta(localRoot, rel, meta); err != nil {
 		return err
 	}
@@ -122,6 +123,9 @@ func isCloudPlaceholder(path string) bool {
 		return false
 	}
 	if _, ok := readPlaceholderMetaForRel(localRoot, rel); !ok {
+		return false
+	}
+	if !isCloudOnlyPlaceholder(localRoot, rel) {
 		return false
 	}
 	// Sidecar present — cloud placeholder until fully hydrated (meta removed on hydrate).

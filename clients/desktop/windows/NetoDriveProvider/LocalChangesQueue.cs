@@ -39,6 +39,44 @@ internal static class LocalChangesQueue
         PlaceholderQueue.RemoveRel(cfg, rel);
     }
 
+    internal static void EnqueueModify(AppConfig cfg, string rel)
+    {
+        rel = rel.Replace('\\', '/').Trim('/');
+        if (string.IsNullOrEmpty(rel))
+            return;
+
+        var path = PendingModifiesPath(cfg);
+        var existing = ReadModifyAll(cfg);
+        if (existing.Contains(rel))
+            return;
+
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.AppendAllText(path, rel + Environment.NewLine);
+        Console.WriteLine($"local modify enqueued: {rel}");
+    }
+
+    internal static string PendingModifiesPath(AppConfig cfg) => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "NetoDrive",
+        "local-changes",
+        PlaceholderQueue.SyncRootDataId(cfg.LocalFolder),
+        "pending-modifies.txt");
+
+    internal static HashSet<string> ReadModifyAll(AppConfig cfg)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var path = PendingModifiesPath(cfg);
+        if (!File.Exists(path))
+            return set;
+        foreach (var line in File.ReadAllLines(path))
+        {
+            var rel = line.Replace('\\', '/').Trim('/');
+            if (rel.Length > 0)
+                set.Add(rel);
+        }
+        return set;
+    }
+
     internal static HashSet<string> ReadAll(AppConfig cfg)
     {
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

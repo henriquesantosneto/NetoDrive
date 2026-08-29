@@ -21,6 +21,9 @@ func TryQuickSync(c *Client, statePath, localRoot string) (bool, error) {
 	if HasPendingLocalChanges(localRoot) {
 		return false, nil
 	}
+	if localContentChangedSinceSync(localRoot, st.Known) {
+		return false, nil
+	}
 	localDirs, err := scanLocalDirsForSync(localRoot)
 	if err == nil && dirsChanged(localDirs, st.KnownDirs) {
 		return false, nil
@@ -67,6 +70,9 @@ func NeedsBackgroundSync(c *Client, statePath, localRoot string) (bool, error) {
 		return false, err
 	}
 	if HasPendingLocalChanges(localRoot) {
+		return true, nil
+	}
+	if localContentChangedSinceSync(localRoot, st.Known) {
 		return true, nil
 	}
 	if HasPendingPlaceholderQueue(localRoot) {

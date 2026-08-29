@@ -315,7 +315,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	fp := manifestFingerprint(man)
 	ensureKnownDirs(&st)
 	localDirsPeek, _ := scanLocalDirsForSync(localRoot)
-	if fp != "" && fp == st.LastManifestFP && !HasPendingLocalChanges(localRoot) && !dirsChanged(localDirsPeek, st.KnownDirs) {
+	if fp != "" && fp == st.LastManifestFP && !HasPendingLocalChanges(localRoot) && !dirsChanged(localDirsPeek, st.KnownDirs) && !localContentChangedSinceSync(localRoot, st.Known) {
 		if !remoteFilesNeedMaterialization(localRoot, man) {
 			syncLog("sync: sem alteracoes remotas (skip scan CFAPI)")
 			return SaveStateCached(statePath, st)
@@ -504,7 +504,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		if ok && re.Hash == local[rel] {
 			continue
 		}
-		if IsPlaceholderRel(localRoot, rel) {
+		if isCloudOnlyPlaceholder(localRoot, rel) {
 			if ok {
 				syncLog("☁ atualiza placeholder %s", rel)
 				if err := writePlaceholder(localRoot, rel, placeholderMeta{Hash: re.Hash, Size: re.Size}); err != nil {
@@ -521,6 +521,8 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		if _, err := c.Upload(localPath, remotePath); err != nil {
 			return fmt.Errorf("upload %s: %w", remotePath, err)
 		}
+		_ = writeHydratedMeta(localRoot, rel, placeholderMeta{Hash: local[rel], Size: re.Size})
+		_ = ClearLocalModify(localRoot, rel)
 		if oldRemote, ok := legacyRemotes[rel]; ok && oldRemote != remotePath {
 			syncLog("↺ remove legacy %s", oldRemote)
 			_ = c.Delete(oldRemote)

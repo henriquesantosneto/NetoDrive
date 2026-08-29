@@ -18,9 +18,9 @@ func indexMetaStorePresent(localRoot string) map[string]string {
 		return all
 	}
 	out := make(map[string]string, len(all))
-	for rel, hash := range all {
-		if localFilePresentInSyncRoot(localRoot, rel) {
-			out[rel] = hash
+	for rel := range all {
+		if h, ok := indexLocalFileHash(localRoot, rel); ok {
+			out[rel] = h
 		}
 	}
 	return out

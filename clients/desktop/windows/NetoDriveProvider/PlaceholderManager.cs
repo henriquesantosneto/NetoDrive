@@ -123,6 +123,7 @@ internal static class PlaceholderManager
             throw new FileNotFoundException($"arquivo nao encontrado: {rel}", full);
         CfPlaceholderOps.SetPinState(full, CF_PIN_STATE.CF_PIN_STATE_PINNED);
         CfPlaceholderOps.Hydrate(full);
+        PlaceholderCatalog.SetCloudOnly(cfg, rel, false);
         Console.WriteLine($"pinned: {rel}");
     }
 
@@ -132,6 +133,7 @@ internal static class PlaceholderManager
         if (!File.Exists(full))
             return;
         CfPlaceholderOps.Dehydrate(full);
+        PlaceholderCatalog.SetCloudOnly(cfg, rel, true);
         Console.WriteLine($"dehydrated: {rel}");
     }
 
@@ -141,6 +143,7 @@ internal static class PlaceholderManager
         if (!File.Exists(full))
             throw new FileNotFoundException($"arquivo nao encontrado: {rel}", full);
         CfPlaceholderOps.Hydrate(full);
+        PlaceholderCatalog.SetCloudOnly(cfg, rel, false);
         Console.WriteLine($"hydrated: {rel}");
     }
 

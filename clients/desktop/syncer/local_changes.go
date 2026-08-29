@@ -65,11 +65,13 @@ func PendingLocalDeleteSet(localRoot string) (map[string]bool, error) {
 }
 
 func HasPendingLocalChanges(localRoot string) bool {
-	set, err := PendingLocalDeleteSet(localRoot)
-	if err != nil {
-		return false
+	if set, err := PendingLocalDeleteSet(localRoot); err == nil && len(set) > 0 {
+		return true
 	}
-	return len(set) > 0
+	if set, err := PendingLocalModifySet(localRoot); err == nil && len(set) > 0 {
+		return true
+	}
+	return false
 }
 
 func ClearLocalDelete(localRoot, rel string) error {
