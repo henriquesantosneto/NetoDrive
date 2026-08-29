@@ -18,9 +18,6 @@ func placeholderUpToDate(localRoot, rel string, meta placeholderMeta) bool {
 		return true
 	}
 	if cfapiProviderActive() {
-		if _, err := os.Stat(placeholderPath(localRoot, rel)); err == nil {
-			return true
-		}
 		return false
 	}
 	content := placeholderPath(localRoot, rel)

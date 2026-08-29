@@ -38,19 +38,27 @@ internal static class PlaceholderIdentity
 
 internal static class PlaceholderManager
 {
-    internal static void Create(AppConfig cfg, string rel, string hash, long size)
+    internal static bool Exists(AppConfig cfg, string rel)
     {
         rel = rel.Replace('\\', '/').Trim('/');
         var full = Path.Combine(cfg.LocalFolder, rel.Replace('/', Path.DirectorySeparatorChar));
+        return File.Exists(full);
+    }
+
+    internal static void Create(AppConfig cfg, string rel, string hash, long size)
+    {
+        rel = rel.Replace('\\', '/').Trim('/');
+        if (Exists(cfg, rel))
+            return;
+
+        var full = Path.Combine(cfg.LocalFolder, rel.Replace('/', Path.DirectorySeparatorChar));
         var parent = Path.GetDirectoryName(full)!;
-        Directory.CreateDirectory(parent);
+        EnsureDirectoryPlaceholder(cfg, parent);
 
         // Remove legacy placeholder (.lnk, magic file, or plain file).
         var lnk = full + ".lnk";
         if (File.Exists(lnk))
             File.Delete(lnk);
-        if (File.Exists(full))
-            File.Delete(full);
 
         var identity = PlaceholderIdentity.Encode(rel, hash, size);
         using var idMem = new SafeCoTaskMemHandle(identity);
@@ -77,6 +85,27 @@ internal static class PlaceholderManager
             throw new InvalidOperationException($"CfCreatePlaceholders {rel}: {hr}");
         if (info.Result.Failed)
             throw new InvalidOperationException($"CfCreatePlaceholders {rel}: {info.Result}");
+    }
+
+    private static void EnsureDirectoryPlaceholder(AppConfig cfg, string dirPath)
+    {
+        if (string.Equals(dirPath, cfg.LocalFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            Directory.CreateDirectory(dirPath);
+            return;
+        }
+
+        if (!Directory.Exists(dirPath))
+        {
+            var parent = Path.GetDirectoryName(dirPath);
+            if (parent != null)
+                EnsureDirectoryPlaceholder(cfg, parent);
+        }
+
+        if (Directory.Exists(dirPath))
+            return;
+
+        Directory.CreateDirectory(dirPath);
     }
 
     internal static void Remove(AppConfig cfg, string rel)

@@ -39,11 +39,43 @@ internal static class PlaceholderQueue
         SyncRootDataId(cfg.LocalFolder),
         "pending.jsonl");
 
-    internal static void ProcessPending(AppConfig cfg)
+    internal static IReadOnlyList<PlaceholderQueueEntry> PeekPending(AppConfig cfg)
     {
         var path = QueuePath(cfg);
         if (!File.Exists(path))
-            return;
+            return Array.Empty<PlaceholderQueueEntry>();
+
+        var entries = new List<PlaceholderQueueEntry>();
+        try
+        {
+            foreach (var line in File.ReadAllLines(path))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+                try
+                {
+                    var entry = JsonSerializer.Deserialize<PlaceholderQueueEntry>(line);
+                    if (entry != null && !string.IsNullOrWhiteSpace(entry.Rel))
+                        entries.Add(entry);
+                }
+                catch
+                {
+                    // skip bad line
+                }
+            }
+        }
+        catch (IOException)
+        {
+            // sync may be writing
+        }
+        return entries;
+    }
+
+    internal static int ProcessPending(AppConfig cfg, int maxItems = 20)
+    {
+        var path = QueuePath(cfg);
+        if (!File.Exists(path))
+            return 0;
 
         List<string> lines;
         lock (Gate)
@@ -51,13 +83,19 @@ internal static class PlaceholderQueue
             lines = ReadAndClear(path);
         }
         if (lines.Count == 0)
-            return;
+            return 0;
 
         var retry = new List<string>();
+        var processed = 0;
         foreach (var line in lines)
         {
             if (string.IsNullOrWhiteSpace(line))
                 continue;
+            if (processed >= maxItems)
+            {
+                retry.Add(line);
+                continue;
+            }
             PlaceholderQueueEntry? entry;
             try
             {
@@ -72,6 +110,7 @@ internal static class PlaceholderQueue
             try
             {
                 PlaceholderManager.Create(cfg, entry.Rel, entry.Hash, entry.Size);
+                processed++;
             }
             catch (Exception ex)
             {
@@ -80,12 +119,14 @@ internal static class PlaceholderQueue
             }
         }
 
-        if (retry.Count == 0)
-            return;
-        lock (Gate)
+        if (retry.Count > 0)
         {
-            AppendLines(path, retry);
+            lock (Gate)
+            {
+                AppendLines(path, retry);
+            }
         }
+        return processed;
     }
 
     private static List<string> ReadAndClear(string path)
