@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -437,12 +438,17 @@ func loadConfig(path string) (Config, error) {
 	if err != nil {
 		return cfg, err
 	}
-	if err := json.Unmarshal(b, &cfg); err != nil {
-		return cfg, err
+	fixed := syncer.FixJSONWindowsPaths(b)
+	if err := json.Unmarshal(fixed, &cfg); err != nil {
+		if lf, ok := syncer.ExtractLocalFolderFromBrokenJSON(b); ok {
+			cfg.LocalFolder = lf
+		} else {
+			return cfg, fmt.Errorf("config %s: JSON invalido (local_folder precisa de \\\\ ou /): %w", path, err)
+		}
 	}
 	if strings.TrimSpace(cfg.LocalFolder) == "" {
 		var raw map[string]json.RawMessage
-		if json.Unmarshal(b, &raw) == nil {
+		if json.Unmarshal(fixed, &raw) == nil {
 			for _, key := range []string{"LocalFolder", "localFolder"} {
 				v, ok := raw[key]
 				if !ok {
@@ -455,6 +461,9 @@ func loadConfig(path string) (Config, error) {
 				}
 			}
 		}
+	}
+	if !bytes.Equal(fixed, b) {
+		_ = os.WriteFile(path, fixed, 0o600)
 	}
 	return cfg, nil
 }

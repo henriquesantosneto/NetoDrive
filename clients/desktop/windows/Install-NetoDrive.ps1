@@ -108,7 +108,7 @@ if ($dotnet) {
   Write-Host "Compilando integracao nativa do Explorer (CFAPI + menu)..."
   $providerDir = Join-Path $Root "NetoDriveProvider"
   $shellDir = Join-Path $Root "NetoDriveShell"
-    if (Test-Path $providerDir) {
+  if (Test-Path $providerDir) {
     Push-Location $providerDir
     dotnet publish -c Release -r win-x64 --self-contained false -o $InstallDir
     if ($LASTEXITCODE -ne 0) { Pop-Location; throw "Falha ao compilar netodrive-provider" }
@@ -134,10 +134,10 @@ if ($dotnet) {
         Write-Host "  Feche o Explorer, encerre netodrive-provider e tente:" -ForegroundColor Yellow
         Write-Host "    & '$providerExe' -unregister -config '$cfg'" -ForegroundColor Yellow
         Write-Host "    & '$providerExe' -register -config '$cfg'" -ForegroundColor Yellow
-        Write-Host "  Causa comum: pasta dentro do OneDrive (Documents)." -ForegroundColor Yellow
-        $suggested = Join-Path $env:USERPROFILE "NetoDrive"
-        Write-Host "  Edite $cfg e defina:" -ForegroundColor Yellow
-        Write-Host "    `"local_folder`": `"$suggested`"" -ForegroundColor Yellow
+        Write-Host "  Causa comum: local_folder com barra simples no JSON." -ForegroundColor Yellow
+        Write-Host "  Use barras duplas ou normais:" -ForegroundColor Yellow
+        Write-Host '    "local_folder": "C:\\Users\\henri\\NetoDrive"' -ForegroundColor Yellow
+        Write-Host '    "local_folder": "C:/Users/henri/NetoDrive"' -ForegroundColor Yellow
         Write-Host "  Depois rode Install-NetoDrive.ps1 novamente." -ForegroundColor Yellow
       } else {
         & $providerExe -status -config $cfg

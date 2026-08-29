@@ -24,9 +24,29 @@ internal sealed class AppConfig
     public static AppConfig Load(string path)
     {
         var json = File.ReadAllText(path);
-        var cfg = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+        var prepared = JsonConfigReader.PrepareJson(json);
+        var repaired = !string.Equals(json, prepared, StringComparison.Ordinal);
 
-        // Fallback: snake_case no JSON as vezes nao mapeia sem JsonPropertyName em builds antigos.
+        AppConfig cfg;
+        try
+        {
+            cfg = JsonSerializer.Deserialize<AppConfig>(prepared, JsonOptions) ?? new AppConfig();
+        }
+        catch (JsonException ex)
+        {
+            cfg = new AppConfig();
+            var raw = JsonConfigReader.ExtractLocalFolderRegex(json);
+            if (string.IsNullOrWhiteSpace(raw))
+                throw new InvalidOperationException(
+                    $"JSON invalido em {path}: {ex.Message}\n" +
+                    "Corrija local_folder com barras duplas, ex.:\n" +
+                    "  \"local_folder\": \"C:\\\\Users\\\\henri\\\\NetoDrive\"\n" +
+                    "ou use barras normais: \"C:/Users/henri/NetoDrive\"",
+                    ex);
+            cfg.LocalFolder = raw;
+            repaired = true;
+        }
+
         if (string.IsNullOrWhiteSpace(cfg.LocalFolder))
         {
             var raw = JsonConfigReader.ReadLocalFolderRaw(json);
@@ -35,7 +55,27 @@ internal sealed class AppConfig
         }
 
         cfg.LocalFolder = LocalFolderResolver.Resolve(path, cfg.LocalFolder);
+
+        if (repaired)
+            TryPersistPreparedJson(path, json, prepared);
+
         return cfg;
+    }
+
+    private static void TryPersistPreparedJson(string path, string original, string prepared)
+    {
+        try
+        {
+            JsonSerializer.Deserialize<AppConfig>(prepared, JsonOptions);
+            if (string.Equals(original, prepared, StringComparison.Ordinal))
+                return;
+            File.WriteAllText(path, prepared);
+            Console.WriteLine($"Config corrigida (local_folder — use \\\\ ou / no JSON): {path}");
+        }
+        catch
+        {
+            // ignore
+        }
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -44,37 +84,6 @@ internal sealed class AppConfig
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
     };
-}
-
-internal static class JsonConfigReader
-{
-    internal static string? ReadLocalFolderRaw(string json)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            foreach (var name in new[] { "local_folder", "LocalFolder", "localFolder" })
-            {
-                if (!doc.RootElement.TryGetProperty(name, out var el))
-                    continue;
-                var s = el.GetString()?.Trim();
-                if (!string.IsNullOrWhiteSpace(s))
-                    return s;
-            }
-        }
-        catch
-        {
-            // ignore
-        }
-        return null;
-    }
-
-    internal static string? ReadLocalFolderRawFromFile(string cfgPath)
-    {
-        if (!File.Exists(cfgPath))
-            return null;
-        return ReadLocalFolderRaw(File.ReadAllText(cfgPath));
-    }
 }
 
 internal static class LocalFolderResolver

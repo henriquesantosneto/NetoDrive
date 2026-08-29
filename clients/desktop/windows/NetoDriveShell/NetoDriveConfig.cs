@@ -1,7 +1,7 @@
 using System;
 using System.IO;
-using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 namespace NetoDriveShell;
@@ -17,6 +17,10 @@ internal static class NetoDriveConfig
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "NetoDrive");
 
+    private static readonly Regex LocalFolderPattern = new(
+        @"""((?:local_folder|LocalFolder))""\s*:\s*""([^""]*)""",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     internal static string SyncExe => Path.Combine(InstallDir, "netodrive-sync.exe");
 
     internal static bool TryGetLocalFolder(out string localFolder)
@@ -24,25 +28,28 @@ internal static class NetoDriveConfig
         localFolder = "";
         if (!File.Exists(ConfigPath))
             return false;
+
+        var raw = File.ReadAllText(ConfigPath);
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(ConfigPath));
+            var prepared = PrepareJson(raw);
+            using var doc = JsonDocument.Parse(prepared);
             if (doc.RootElement.TryGetProperty("local_folder", out var lf) ||
                 doc.RootElement.TryGetProperty("LocalFolder", out lf))
             {
                 localFolder = lf.GetString() ?? "";
-                if (!string.IsNullOrWhiteSpace(localFolder))
-                {
-                    localFolder = ResolveLocalFolder(ConfigPath, localFolder.Trim());
-                    return true;
-                }
             }
         }
         catch
         {
-            // ignore malformed config
+            localFolder = ExtractLocalFolderFromRaw(raw);
         }
-        return false;
+
+        if (string.IsNullOrWhiteSpace(localFolder))
+            return false;
+
+        localFolder = ResolveLocalFolder(ConfigPath, localFolder.Trim());
+        return true;
     }
 
     internal static bool IsUnderSyncRoot(string path, out string relative)
@@ -76,6 +83,23 @@ internal static class NetoDriveConfig
             WorkingDirectory = InstallDir,
         };
         System.Diagnostics.Process.Start(psi);
+    }
+
+    private static string PrepareJson(string json) =>
+        LocalFolderPattern.Replace(json, m =>
+        {
+            var key = m.Groups[1].Value;
+            var path = m.Groups[2].Value.Replace(@"\\", @"\");
+            var escaped = path.Replace(@"\", @"\\");
+            return $@"""{key}"": ""{escaped}""";
+        });
+
+    private static string ExtractLocalFolderFromRaw(string json)
+    {
+        var m = LocalFolderPattern.Match(json);
+        if (!m.Success)
+            return "";
+        return m.Groups[2].Value.Replace(@"\\", @"\");
     }
 
     private static string ResolveLocalFolder(string configPath, string folder)
