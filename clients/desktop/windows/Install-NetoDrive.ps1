@@ -181,6 +181,8 @@ if (-not (Test-Path $cfg)) {
   Write-Host "Config criada em $cfg"
   Write-Host "Edite server_url e local_folder (padrao: $env:USERPROFILE\NetoDrive, fora do OneDrive)."
   notepad $cfg
+} else {
+  Write-Host "Config existente preservada: $cfg"
 }
 
 # Build/install CFAPI provider + menu de contexto (requer .NET 8 SDK no Windows)

@@ -57,25 +57,21 @@ internal sealed class AppConfig
         cfg.LocalFolder = LocalFolderResolver.Resolve(path, cfg.LocalFolder);
 
         if (repaired)
-            TryPersistPreparedJson(path, json, prepared);
+        {
+            Console.Error.WriteLine(
+                $"AVISO: local_folder no JSON usa barras simples invalidas em {path}. " +
+                "Use barras duplas ou normais, ex.: \"local_folder\": \"C:/Users/henri/NetoDrive\"");
+        }
 
         return cfg;
     }
 
     private static void TryPersistPreparedJson(string path, string original, string prepared)
     {
-        try
-        {
-            JsonSerializer.Deserialize<AppConfig>(prepared, JsonOptions);
-            if (string.Equals(original, prepared, StringComparison.Ordinal))
-                return;
-            File.WriteAllText(path, prepared);
-            Console.WriteLine($"Config corrigida (local_folder — use \\\\ ou / no JSON): {path}");
-        }
-        catch
-        {
-            // ignore
-        }
+        // Intentionally do not rewrite user config on load/register.
+        _ = path;
+        _ = original;
+        _ = prepared;
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new()

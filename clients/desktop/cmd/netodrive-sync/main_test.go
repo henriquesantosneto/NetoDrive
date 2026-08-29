@@ -65,17 +65,38 @@ func TestNormalizeConfigDoesNotOverrideOneDrive(t *testing.T) {
 	}
 }
 
-func TestSaveConfigPreservesLocalFolder(t *testing.T) {
+func TestLoadConfigDoesNotRewriteFile(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "netodrive.json")
-	want := filepath.Join(dir, "sync")
-	cfg := Config{
-		ServerURL:   "http://127.0.0.1:8080",
-		DeviceID:    "dev",
-		LocalFolder: want,
-		IntervalSec: 30,
+	body := `{
+  "server_url": "http://127.0.0.1:8080",
+  "local_folder": "C:/Users/henri/NetoDrive",
+  "device_id": "dev-1"
+}`
+	if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if err := saveConfig(cfgPath, cfg); err != nil {
+	if _, err := loadConfig(cfgPath); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != body {
+		t.Fatalf("loadConfig rewrote config:\n--- got ---\n%s\n--- want ---\n%s", got, body)
+	}
+}
+
+func TestPatchConfigFieldsPreservesLocalFolder(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "netodrive.json")
+	wantFolder := "C:/Users/henri/NetoDrive"
+	body := `{"server_url":"http://127.0.0.1:8080","local_folder":"` + wantFolder + `","device_id":"dev"}`
+	if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := patchConfigFields(cfgPath, map[string]any{"token": "abc123"}); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(cfgPath)
@@ -84,14 +105,15 @@ func TestSaveConfigPreservesLocalFolder(t *testing.T) {
 	}
 	var raw struct {
 		LocalFolder string `json:"local_folder"`
+		Token       string `json:"token"`
 	}
 	if err := json.Unmarshal(b, &raw); err != nil {
 		t.Fatal(err)
 	}
-	got := raw.LocalFolder
-	gotAbs, _ := filepath.Abs(got)
-	wantAbs, _ := filepath.Abs(want)
-	if gotAbs != wantAbs {
-		t.Fatalf("saved %q want %q", gotAbs, wantAbs)
+	if raw.LocalFolder != wantFolder {
+		t.Fatalf("local_folder changed to %q", raw.LocalFolder)
+	}
+	if raw.Token != "abc123" {
+		t.Fatalf("token = %q", raw.Token)
 	}
 }

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -85,19 +84,18 @@ func main() {
 		fatal(fmt.Errorf("config %s: %w", *cfgPath, err))
 	}
 	fmt.Printf("Config: %s\n", *cfgPath)
-	migrated := false
-	if cfg.LocalFolder == "" {
+	if strings.TrimSpace(cfg.LocalFolder) == "" {
 		cfg.LocalFolder = syncer.DefaultSyncFolder()
-		migrated = true
+		fmt.Fprintf(os.Stderr, "Aviso: local_folder vazio no JSON; usando %s (edite o arquivo para persistir).\n", cfg.LocalFolder)
 	}
 	cfg.LocalFolder = syncer.ResolveLocalFolder(*cfgPath, cfg.LocalFolder)
-	if normalizeConfig(&cfg) {
-		migrated = true
-	}
+	normalizeConfig(&cfg)
 	warnLocalFolderIssues(cfg.LocalFolder)
 	if cfg.DeviceID == "" {
 		cfg.DeviceID = uuid.NewString()
-		migrated = true
+		if err := patchConfigFields(*cfgPath, map[string]any{"device_id": cfg.DeviceID}); err != nil {
+			fmt.Fprintf(os.Stderr, "Aviso: nao foi possivel gravar device_id no config: %v\n", err)
+		}
 	}
 	if cfg.IntervalSec <= 0 {
 		cfg.IntervalSec = 30
@@ -114,10 +112,9 @@ func main() {
 			fatal(err)
 		}
 		cfg.Token = client.Token
-		migrated = true
-	}
-	if migrated {
-		_ = saveConfig(*cfgPath, cfg)
+		if err := patchConfigFields(*cfgPath, map[string]any{"token": cfg.Token}); err != nil {
+			fmt.Fprintf(os.Stderr, "Aviso: nao foi possivel gravar token no config: %v\n", err)
+		}
 	}
 
 	if err := os.MkdirAll(cfg.LocalFolder, 0o755); err != nil {
@@ -462,10 +459,36 @@ func loadConfig(path string) (Config, error) {
 			}
 		}
 	}
-	if !bytes.Equal(fixed, b) {
-		_ = os.WriteFile(path, fixed, 0o600)
-	}
 	return cfg, nil
+}
+
+// patchConfigFields updates only the given keys, preserving the rest of the file.
+func patchConfigFields(path string, fields map[string]any) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	fixed := syncer.FixJSONWindowsPaths(b)
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(fixed, &root); err != nil {
+		return fmt.Errorf("config invalido (nao alterado): %w", err)
+	}
+	for k, v := range fields {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		root[k] = raw
+	}
+	out, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return err
+	}
+	out = append(out, '\n')
+	return os.WriteFile(path, out, 0o600)
 }
 
 // normalizeConfig clears legacy settings and canonicalizes paths without overriding user choice.
