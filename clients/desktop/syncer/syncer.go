@@ -497,22 +497,19 @@ func hydratePinnedFromManifest(c *Client, localRoot string, st *SyncState, remot
 			continue
 		}
 		localPath := placeholderPath(localRoot, rel)
-		if !IsPlaceholderRel(localRoot, rel) {
-			if cfapiProviderActive() {
-				if err := providerHydrate(rel); err != nil {
-					return fmt.Errorf("hydrate pinned %s: %w", rel, err)
-				}
-				continue
-			}
-			if h, _, err := FileHash(localPath); err == nil && h == e.Hash {
-				continue
-			}
-		}
 		if cfapiProviderActive() {
+			if !IsPlaceholderRel(localRoot, rel) {
+				continue
+			}
 			if err := providerHydrate(rel); err != nil {
 				return fmt.Errorf("hydrate pinned %s: %w", rel, err)
 			}
 			continue
+		}
+		if !IsPlaceholderRel(localRoot, rel) {
+			if h, _, err := FileHash(localPath); err == nil && h == e.Hash {
+				continue
+			}
 		}
 		downloadPath := e.Path
 		if legacyRemote, ok := legacyRemotes[rel]; ok {
