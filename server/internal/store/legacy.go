@@ -41,8 +41,40 @@ func (s *Store) MigrateLegacyDevicePrefixes() (int, error) {
 			}
 			total += n
 		}
+		purged, err := s.purgeStaleLegacyPaths(userID)
+		if err != nil {
+			return total, err
+		}
+		total += purged
 	}
 	return total, nil
+}
+
+// purgeStaleLegacyPaths removes PC/foo when foo already exists at account root.
+func (s *Store) purgeStaleLegacyPaths(userID int64) (int, error) {
+	all, err := s.ListAllActive(userID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, f := range all {
+		for _, prefix := range LegacyDevicePrefixes {
+			p := prefix + "/"
+			if !strings.HasPrefix(f.Path, p) {
+				continue
+			}
+			rootPath := strings.TrimPrefix(f.Path, p)
+			if rootPath == "" {
+				continue
+			}
+			if existing, err := s.GetFileByPath(userID, rootPath); err == nil && existing != nil && !existing.Deleted {
+				if _, err := s.SoftDelete(userID, f.Path); err == nil {
+					n++
+				}
+			}
+		}
+	}
+	return n, nil
 }
 
 func (s *Store) flattenLegacyPrefix(userID int64, prefix string) (int, error) {
@@ -80,6 +112,13 @@ func (s *Store) flattenLegacyPrefix(userID int64, prefix string) (int, error) {
 			moved++
 			continue
 		}
+		if existing, err := s.GetFileByPath(userID, m.newPath); err == nil && existing != nil && !existing.Deleted {
+			if _, err := s.SoftDelete(userID, m.oldPath); err != nil {
+				return moved, err
+			}
+			moved++
+			continue
+		}
 		if err := s.relocatePath(userID, m.oldPath, m.newPath); err != nil {
 			return moved, fmt.Errorf("relocate %s -> %s: %w", m.oldPath, m.newPath, err)
 		}
@@ -96,13 +135,21 @@ func (s *Store) relocatePath(userID int64, oldPath, newPath string) error {
 	if f.Deleted {
 		return fmt.Errorf("path deleted: %s", oldPath)
 	}
-	if existing, err := s.GetFileByPath(userID, newPath); err == nil && existing != nil && !existing.Deleted {
-		if existing.MTime.After(f.MTime) {
+	if existing, err := s.GetFileByPath(userID, newPath); err == nil && existing != nil {
+		if existing.Deleted {
+			if err := s.Purge(userID, newPath); err != nil {
+				return err
+			}
+		} else if existing.MTime.After(f.MTime) {
 			_, err := s.SoftDelete(userID, oldPath)
 			return err
-		}
-		if _, err := s.SoftDelete(userID, newPath); err != nil {
-			return err
+		} else {
+			if _, err := s.SoftDelete(userID, newPath); err != nil {
+				return err
+			}
+			if err := s.Purge(userID, newPath); err != nil {
+				return err
+			}
 		}
 	}
 

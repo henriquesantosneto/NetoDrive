@@ -82,6 +82,15 @@ rm -f "$LOCAL/localdel.txt"
 curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/files?path=" | grep -qv localdel.txt
 curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/trash" | grep -q localdel.txt
 
+echo "== legacy PC path delete =="
+curl -sf -X PUT "http://127.0.0.1:$PORT/api/sync/upload" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-File-Path: PC/legacy-old.txt" \
+  -H "X-Device-Id: e2e" \
+  --data-binary "legacy" >/dev/null
+curl -sf -X DELETE -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/files/PC" >/dev/null
+! curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/sync/manifest" | grep -q legacy-old.txt
+
 echo "== on-demand placeholders =="
 OD="$(mktemp -d /tmp/netodrive-od-XXXXXX)"
 cat >"$DATA/od.json" <<EOF

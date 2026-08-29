@@ -290,13 +290,14 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	}
 
 	for _, rel := range plan.deleteRemote {
-		remotePath := rel
-		if remotePrefix != "" {
-			remotePath = remotePrefix + "/" + rel
-		}
+		remotePath := remoteDeletePath(rel, remotePrefix, legacyRemotes)
 		fmt.Printf("× remoto %s (removido neste PC)\n", remotePath)
 		if err := c.Delete(remotePath); err != nil {
 			return fmt.Errorf("delete remote %s: %w", remotePath, err)
+		}
+		// Best-effort: remove duplicate at root if legacy path differed.
+		if remotePath != rel {
+			_ = c.Delete(rel)
 		}
 		delete(remote, rel)
 	}

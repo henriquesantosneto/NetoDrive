@@ -506,18 +506,31 @@ func (s *Store) EmptyTrash(userID int64) (int, error) {
 func (s *Store) SoftDeleteMany(userID int64, paths []string) (int, error) {
 	n := 0
 	for _, p := range paths {
+		p = strings.Trim(p, "/")
 		f, err := s.GetFileByPath(userID, p)
+		toDelete := []string{}
 		if err != nil {
-			continue
-		}
-		toDelete := []string{p}
-		if f.IsDir {
+			// Virtual folder (e.g. PC/ without a directory row) — delete descendants.
 			children, err := s.ListDescendants(userID, p, false)
 			if err != nil {
 				return n, err
 			}
+			if len(children) == 0 {
+				continue
+			}
 			for _, c := range children {
 				toDelete = append(toDelete, c.Path)
+			}
+		} else {
+			toDelete = []string{p}
+			if f.IsDir {
+				children, err := s.ListDescendants(userID, p, false)
+				if err != nil {
+					return n, err
+				}
+				for _, c := range children {
+					toDelete = append(toDelete, c.Path)
+				}
 			}
 		}
 		for _, dp := range toDelete {

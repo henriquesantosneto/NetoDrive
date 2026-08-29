@@ -223,12 +223,12 @@ func (s *Server) handleFileByPath(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, f)
 	case http.MethodDelete:
-		f, err := s.Store.SoftDelete(c.UserID, p)
-		if err != nil {
+		n, err := s.Store.SoftDeleteMany(c.UserID, []string{p})
+		if err != nil || n == 0 {
 			writeErr(w, http.StatusNotFound, "not found")
 			return
 		}
-		writeJSON(w, http.StatusOK, f)
+		writeJSON(w, http.StatusOK, map[string]any{"deleted": n})
 	case http.MethodPost:
 		var body struct {
 			IsDir bool `json:"is_dir"`

@@ -86,8 +86,28 @@ func deleteLocalFile(localRoot, rel string) error {
 	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	// Remove legacy PC/Android copy if still on disk.
+	for _, prefix := range legacyDevicePrefixes {
+		legacy := filepath.Join(localRoot, prefix, filepath.FromSlash(rel))
+		if err := os.Remove(legacy); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
 	pruneEmptyDirs(localRoot, filepath.Dir(abs))
+	for _, prefix := range legacyDevicePrefixes {
+		pruneEmptyDirs(localRoot, filepath.Join(localRoot, prefix))
+	}
 	return nil
+}
+
+func remoteDeletePath(rel, remotePrefix string, legacyRemotes map[string]string) string {
+	if legacy, ok := legacyRemotes[rel]; ok && legacy != "" {
+		return legacy
+	}
+	if remotePrefix != "" {
+		return remotePrefix + "/" + rel
+	}
+	return rel
 }
 
 func pruneEmptyDirs(localRoot, dir string) {
@@ -131,16 +151,31 @@ func scanLocalFiles(localRoot string) (map[string]string, error) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
+		absRel := rel
+		isLegacy := false
+		for _, prefix := range legacyDevicePrefixes {
+			if absRel == prefix || strings.HasPrefix(absRel, prefix+"/") {
+				isLegacy = true
+				break
+			}
+		}
 		rel = localRelFromLocal(rel)
 		if rel == "" {
 			return nil
 		}
-		hash, _, err := hashForLocalPath(localRoot, rel)
-		if err != nil {
-			if os.IsNotExist(err) {
+		if isLegacy {
+			if _, exists := local[rel]; exists {
 				return nil
 			}
-			return err
+		}
+		var hash string
+		if meta, ok := readPlaceholderMeta(path); ok {
+			hash = meta.Hash
+		} else {
+			hash, _, err = FileHash(path)
+			if err != nil {
+				return err
+			}
 		}
 		local[rel] = hash
 		return nil
