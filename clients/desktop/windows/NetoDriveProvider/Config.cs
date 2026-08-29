@@ -33,20 +33,20 @@ internal static class Paths
 {
     internal static readonly Guid ProviderId = new("8F3E2A1B-4C5D-9E6F-A1B2-C3D4E5F67890");
     internal const string ProviderName = "NetoDrive";
-    internal const string AccountId = "Primary";
 
     internal static string ConfigPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "NetoDrive",
         "netodrive.json");
 
-    /// Sync root id format required by Windows: Provider!UserSid!Account
+    /// Sync root id: Provider!UserSid!Account (formato exigido pelo Windows).
     internal static string SyncRootId
     {
         get
         {
             var sid = WindowsIdentity.GetCurrent().User?.Value ?? "local";
-            return $"{ProviderName}!{sid}!{AccountId}";
+            var user = Environment.UserName;
+            return $"{ProviderName}!{sid}!{user}";
         }
     }
 }
