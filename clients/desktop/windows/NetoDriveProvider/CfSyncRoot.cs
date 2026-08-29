@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Text;
 using Vanara.InteropServices;
 using Vanara.PInvoke;
 using static Vanara.PInvoke.CldApi;
@@ -8,7 +6,7 @@ using static Vanara.PInvoke.CldApi;
 namespace NetoDriveProvider;
 
 /// <summary>
-/// Registro CFAPI de baixo nivel (CfRegisterSyncRoot). Necessario antes de CfConnectSyncRoot e do Explorer.
+/// Limpeza CFAPI (CfUnregisterSyncRoot) e controle de processos do provider.
 /// </summary>
 internal static class CfSyncRoot
 {
@@ -21,70 +19,6 @@ internal static class CfSyncRoot
             mem,
             mem.Size,
             out _).Succeeded;
-    }
-
-    internal static void Register(string localFolder, string syncRootId)
-    {
-        if (IsRegistered(localFolder))
-        {
-            Console.WriteLine($"CFAPI: sync root ja registrado em {localFolder}");
-            return;
-        }
-
-        var identity = Encoding.UTF8.GetBytes(syncRootId);
-        using var identityMem = new SafeCoTaskMemHandle(identity);
-
-        var reg = new CF_SYNC_REGISTRATION
-        {
-            StructSize = (uint)Marshal.SizeOf<CF_SYNC_REGISTRATION>(),
-            ProviderName = Paths.ProviderName,
-            ProviderVersion = "1.0.0",
-            SyncRootIdentity = identityMem.DangerousGetHandle(),
-            SyncRootIdentityLength = (uint)identity.Length,
-            FileIdentityLength = 4096,
-            ProviderId = Paths.ProviderId,
-        };
-
-        var pol = new CF_SYNC_POLICIES
-        {
-            StructSize = (uint)Marshal.SizeOf<CF_SYNC_POLICIES>(),
-            Hydration = new CF_HYDRATION_POLICY
-            {
-                Primary = CF_HYDRATION_POLICY_PRIMARY.CF_HYDRATION_POLICY_FULL,
-                Modifier = CF_HYDRATION_POLICY_MODIFIER.CF_HYDRATION_POLICY_MODIFIER_NONE,
-            },
-            Population = new CF_POPULATION_POLICY
-            {
-                Primary = CF_POPULATION_POLICY_PRIMARY.CF_POPULATION_POLICY_PARTIAL,
-                Modifier = CF_POPULATION_POLICY_MODIFIER.CF_POPULATION_POLICY_MODIFIER_NONE,
-            },
-            InSync = CF_INSYNC_POLICY.CF_INSYNC_POLICY_NONE,
-            HardLink = CF_HARDLINK_POLICY.CF_HARDLINK_POLICY_NONE,
-        };
-
-        var hr = CfRegisterSyncRoot(localFolder, reg, pol, CF_REGISTER_FLAGS.CF_REGISTER_FLAG_NONE);
-        if (hr.Failed)
-        {
-            hr = CfRegisterSyncRoot(localFolder, reg, pol, CF_REGISTER_FLAGS.CF_REGISTER_FLAG_UPDATE);
-        }
-        if (hr.Failed)
-        {
-            Console.Error.WriteLine(
-                $"Aviso: CfRegisterSyncRoot({localFolder}): {HrMessage(hr)} — WinRT pode registrar sozinho.");
-        }
-    }
-
-    /// <summary>Tenta registrar CFAPI; usado pelo provider -run se WinRT ja registrou mas CF falta.</summary>
-    internal static void TryRegister(string localFolder, string syncRootId)
-    {
-        try
-        {
-            Register(localFolder, syncRootId);
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"Aviso CFAPI: {ex.Message}");
-        }
     }
 
     internal static void Unregister(string localFolder)

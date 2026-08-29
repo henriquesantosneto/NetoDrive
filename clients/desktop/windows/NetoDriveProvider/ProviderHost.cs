@@ -47,17 +47,11 @@ internal sealed class ProviderHost : IDisposable
             out _connection);
         if (hr.Failed)
         {
-            CfSyncRoot.TryRegister(_cfg.LocalFolder, Paths.SyncRootId);
-            hr = CfConnectSyncRoot(
-                _cfg.LocalFolder,
-                callbacks,
-                IntPtr.Zero,
-                CF_CONNECT_FLAGS.CF_CONNECT_FLAG_REQUIRE_FULL_FILE_PATH,
-                out _connection);
-        }
-        if (hr.Failed)
             throw new InvalidOperationException(
-                $"CfConnectSyncRoot({_cfg.LocalFolder}): {CfSyncRoot.HrMessage(hr)}");
+                $"CfConnectSyncRoot({_cfg.LocalFolder}): {CfSyncRoot.HrMessage(hr)}\n" +
+                "Confira se local_folder no JSON e o mesmo registrado no Explorer (-status).\n" +
+                "Rode: netodrive-provider.exe -register -config \"%APPDATA%\\NetoDrive\\netodrive.json\"");
+        }
         _connected = true;
     }
 

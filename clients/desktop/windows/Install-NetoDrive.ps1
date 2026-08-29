@@ -80,16 +80,18 @@ if ($go) {
 netodrive-sync.exe nao encontrado.
 
 Opcoes:
-1) Instale Go e rode Install-NetoDrive.ps1 de novo (compila automaticamente)
-2) Copie netodrive-sync.exe para:
-   $Root
+1) Instale Go (https://go.dev/dl/) e rode Install-NetoDrive.ps1 de novo
+2) git pull  (traz netodrive-sync.exe atualizado em clients\desktop\windows\)
 "@
   }
+  Write-Host "AVISO: Go nao instalado — usando netodrive-sync.exe embarcado." -ForegroundColor Yellow
+  Write-Host "  Se local_folder for ignorado, instale Go e rode Install de novo." -ForegroundColor Yellow
 }
 
 Write-Host "Usando: $exeSrc"
-if ($exeSrc -ne (Join-Path $InstallDir "netodrive-sync.exe")) {
-  Copy-Item $exeSrc (Join-Path $InstallDir "netodrive-sync.exe") -Force
+Copy-Item $exeSrc (Join-Path $InstallDir "netodrive-sync.exe") -Force
+if ($go -and $exeSrc -ne (Join-Path $Root "netodrive-sync.exe")) {
+  Copy-Item $exeSrc (Join-Path $Root "netodrive-sync.exe") -Force
 }
 Copy-Item (Join-Path $Root "Start-NetoDrive.bat") (Join-Path $InstallDir "Start-NetoDrive.bat") -Force
 Copy-Item (Join-Path $Root "OpenPlaceholder.vbs") (Join-Path $InstallDir "OpenPlaceholder.vbs") -Force
