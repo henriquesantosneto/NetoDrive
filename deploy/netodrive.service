@@ -1,0 +1,23 @@
+[Unit]
+Description=NetoDrive file sync server
+Documentation=https://github.com/henriquesantosneto/NetoDrive
+After=network.target
+
+[Service]
+Type=simple
+User=netodrive
+Group=netodrive
+WorkingDirectory=/opt/netodrive
+EnvironmentFile=-/etc/netodrive/netodrive.env
+ExecStart=/opt/netodrive/bin/netodrive
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65535
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/netodrive
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

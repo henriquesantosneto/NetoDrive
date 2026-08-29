@@ -4,6 +4,7 @@ data/
 dist/
 web/dist/
 web/node_modules/
+web/*.tsbuildinfo
 **/.gradle/
 **/build/
 **/*.exe

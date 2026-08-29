@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState, useTransition } from "react";
+import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 import {
   clearToken,
   createDir,
@@ -8,17 +8,15 @@ import {
   formatSize,
   getToken,
   listFiles,
+  listGallery,
   login,
   openUrl,
   setToken,
   uploadFile,
 } from "./api";
 
-type Preview = {
-  path: string;
-  name: string;
-  mime: string;
-};
+type Preview = { path: string; name: string; mime: string };
+type View = "files" | "gallery";
 
 export default function App() {
   const [token, setTok] = useState(getToken());
@@ -64,13 +62,16 @@ function Login({ onSuccess }: { onSuccess: (token: string) => void }) {
   return (
     <div className="login-panel">
       <div className="login-card">
-        <h1>
-          Neto<span>Drive</span>
-        </h1>
-        <p className="muted">Seus arquivos em Windows, Android e na web — um só servidor Linux.</p>
+        <div className="login-brand">
+          <div className="cloud">N</div>
+          <div>
+            <h1>NetoDrive</h1>
+          </div>
+        </div>
+        <p className="sub">Entre para acessar seus arquivos — como no OneDrive, no seu servidor.</p>
         <form onSubmit={submit}>
           <label>
-            Usuário
+            Conta
             <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
           </label>
           <label>
@@ -93,8 +94,10 @@ function Login({ onSuccess }: { onSuccess: (token: string) => void }) {
 }
 
 function Drive({ onLogout }: { onLogout: () => void }) {
+  const [view, setView] = useState<View>("files");
   const [path, setPath] = useState("");
   const [files, setFiles] = useState<FileMeta[]>([]);
+  const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [pending, start] = useTransition();
@@ -103,9 +106,14 @@ function Drive({ onLogout }: { onLogout: () => void }) {
     start(async () => {
       try {
         setError("");
-        const res = await listFiles(nextPath);
-        setFiles(res.files);
-        setPath(nextPath);
+        if (view === "gallery") {
+          const res = await listGallery(120, 0);
+          setFiles(res.items);
+        } else {
+          const res = await listFiles(nextPath);
+          setFiles(res.files);
+          setPath(nextPath);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erro ao listar");
       }
@@ -113,9 +121,15 @@ function Drive({ onLogout }: { onLogout: () => void }) {
   }
 
   useEffect(() => {
-    refresh("");
+    refresh(view === "files" ? path : "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [view]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return files;
+    return files.filter((f) => f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q));
+  }, [files, query]);
 
   async function onUpload(list: FileList | null) {
     if (!list?.length) return;
@@ -143,7 +157,7 @@ function Drive({ onLogout }: { onLogout: () => void }) {
   }
 
   async function onDelete(f: FileMeta) {
-    if (!window.confirm(`Apagar ${f.name}?`)) return;
+    if (!window.confirm(`Mover "${f.name}" para excluídos?`)) return;
     try {
       await deleteFile(f.path);
       if (preview?.path === f.path) setPreview(null);
@@ -154,111 +168,212 @@ function Drive({ onLogout }: { onLogout: () => void }) {
   }
 
   const crumbs = path ? path.split("/") : [];
+  const title = view === "gallery" ? "Galeria" : path ? crumbs[crumbs.length - 1] : "Meus arquivos";
 
   return (
-    <div className="app-shell">
+    <div className="shell">
       <header className="topbar">
-        <div>
-          <h1 className="brand">
-            Neto<span>Drive</span>
-          </h1>
-          <nav className="crumb">
-            <button type="button" onClick={() => refresh("")}>
-              raiz
-            </button>
-            {crumbs.map((part, i) => {
-              const full = crumbs.slice(0, i + 1).join("/");
-              return (
-                <span key={full}>
-                  /{" "}
-                  <button type="button" onClick={() => refresh(full)}>
-                    {part}
-                  </button>
-                </span>
-              );
-            })}
-          </nav>
+        <div className="logo">
+          <span className="logo-mark">N</span>
+          NetoDrive
         </div>
-        <button className="btn secondary" onClick={onLogout}>
-          Sair
-        </button>
+        <div className="search">
+          <input
+            placeholder="Pesquisar arquivos"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        <div className="user">
+          <button className="btn" onClick={onLogout}>
+            Sair
+          </button>
+        </div>
       </header>
 
-      <div className="toolbar">
-        <label className="btn">
-          Enviar
-          <input
-            type="file"
-            multiple
-            hidden
-            onChange={(e) => {
-              void onUpload(e.target.files);
-              e.target.value = "";
-            }}
-          />
-        </label>
-        <button className="btn secondary" onClick={onMkdir}>
-          Nova pasta
+      <aside className="sidebar">
+        <button
+          type="button"
+          className={`nav-item ${view === "files" && !path.startsWith("Gallery") ? "active" : ""}`}
+          onClick={() => {
+            setView("files");
+            setPath("");
+            setPreview(null);
+          }}
+        >
+          <span className="nav-icon">Fs</span> Meus arquivos
         </button>
-        <button className="btn secondary" onClick={() => refresh(path)} disabled={pending}>
-          Atualizar
+        <button
+          type="button"
+          className={`nav-item ${view === "gallery" ? "active" : ""}`}
+          onClick={() => {
+            setView("gallery");
+            setPreview(null);
+          }}
+        >
+          <span className="nav-icon">Gl</span> Galeria
         </button>
-      </div>
+        <button
+          type="button"
+          className={`nav-item ${path === "PC" ? "active" : ""}`}
+          onClick={() => {
+            setView("files");
+            setPath("PC");
+            setPreview(null);
+            start(async () => {
+              try {
+                const res = await listFiles("PC");
+                setFiles(res.files);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Erro");
+              }
+            });
+          }}
+        >
+          <span className="nav-icon">PC</span> Este computador
+        </button>
+        <button
+          type="button"
+          className="nav-item"
+          onClick={() => {
+            setView("files");
+            setPath("Gallery");
+            setPreview(null);
+            start(async () => {
+              try {
+                const res = await listFiles("Gallery");
+                setFiles(res.files);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Erro");
+              }
+            });
+          }}
+        >
+          <span className="nav-icon">And</span> Do Android
+        </button>
+      </aside>
 
-      {error ? <p className="error">{error}</p> : null}
-
-      <div className="file-list">
-        {files.length === 0 ? (
-          <div className="empty">{pending ? "Carregando…" : "Pasta vazia — envie arquivos ou sincronize um cliente."}</div>
-        ) : (
-          files.map((f) => (
-            <div className="file-row" key={f.id}>
-              <div className="file-main">
-                <div className="file-icon">{f.is_dir ? "DIR" : extLabel(f.name)}</div>
-                <div style={{ minWidth: 0 }}>
-                  <div className="file-name">
-                    {f.is_dir ? (
-                      <button
-                        type="button"
-                        className="btn secondary"
-                        style={{ padding: "0.15rem 0.5rem" }}
-                        onClick={() => refresh(f.path)}
-                      >
-                        {f.name}
-                      </button>
-                    ) : (
-                      f.name
-                    )}
-                  </div>
-                  <div className="file-meta">
-                    {f.is_dir ? "pasta" : `${formatSize(f.size)} · ${f.mime}`}
-                  </div>
-                </div>
-              </div>
-              <div className="file-actions">
-                {!f.is_dir ? (
-                  <>
-                    <button
-                      className="btn secondary"
-                      onClick={() => setPreview({ path: f.path, name: f.name, mime: f.mime })}
-                    >
-                      Abrir
+      <main className="main">
+        <div className="page-header">
+          <h2>{title}</h2>
+          {view === "files" ? (
+            <nav className="breadcrumb">
+              <button type="button" onClick={() => refresh("")}>
+                NetoDrive
+              </button>
+              {crumbs.map((part, i) => {
+                const full = crumbs.slice(0, i + 1).join("/");
+                return (
+                  <span key={full}>
+                    {" › "}
+                    <button type="button" onClick={() => refresh(full)}>
+                      {part}
                     </button>
-                    <a className="btn secondary" href={downloadUrl(f.path)} download={f.name}>
-                      Baixar
-                    </a>
-                  </>
-                ) : null}
-                <button className="btn danger" onClick={() => void onDelete(f)}>
-                  Apagar
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+                  </span>
+                );
+              })}
+            </nav>
+          ) : (
+            <p className="muted" style={{ margin: "0.35rem 0 0" }}>
+              Fotos sincronizadas dos dispositivos (modo cache no Android)
+            </p>
+          )}
+        </div>
 
-      {preview ? <RemotePreview preview={preview} onClose={() => setPreview(null)} /> : null}
+        <div className="command-bar">
+          {view === "files" ? (
+            <>
+              <label className="btn">
+                + Novo / Enviar
+                <input
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    void onUpload(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <button className="btn secondary" onClick={onMkdir}>
+                Nova pasta
+              </button>
+            </>
+          ) : null}
+          <button className="btn secondary" onClick={() => refresh(path)} disabled={pending}>
+            Atualizar
+          </button>
+          {error ? <span className="error">{error}</span> : null}
+        </div>
+
+        <div className="file-table">
+          {filtered.length === 0 ? (
+            <div className="empty">
+              <h3>{pending ? "Carregando…" : "Esta pasta está vazia"}</h3>
+              <p>Envie arquivos pela web, pelo cliente Windows ou sincronize a galeria no Android.</p>
+            </div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>Modificado</th>
+                  <th>Tamanho</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((f) => (
+                  <tr key={f.id}>
+                    <td>
+                      <div className="file-name-cell">
+                        <span className={`icon-tile ${tileClass(f)}`}>{tileLabel(f)}</span>
+                        {f.is_dir ? (
+                          <button type="button" className="linkish" onClick={() => refresh(f.path)}>
+                            {f.name}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="linkish"
+                            onClick={() => setPreview({ path: f.path, name: f.name, mime: f.mime })}
+                          >
+                            {f.name}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td className="muted">{formatDate(f.mtime)}</td>
+                    <td className="muted">{f.is_dir ? "—" : formatSize(f.size)}</td>
+                    <td>
+                      <div className="row-actions">
+                        {!f.is_dir ? (
+                          <>
+                            <button
+                              className="btn ghost"
+                              onClick={() => setPreview({ path: f.path, name: f.name, mime: f.mime })}
+                            >
+                              Abrir
+                            </button>
+                            <a className="btn ghost" href={downloadUrl(f.path)} download={f.name}>
+                              Baixar
+                            </a>
+                          </>
+                        ) : null}
+                        <button className="btn ghost" onClick={() => void onDelete(f)}>
+                          Excluir
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {preview ? <RemotePreview preview={preview} onClose={() => setPreview(null)} /> : null}
+      </main>
     </div>
   );
 }
@@ -266,9 +381,8 @@ function Drive({ onLogout }: { onLogout: () => void }) {
 function RemotePreview({ preview, onClose }: { preview: Preview; onClose: () => void }) {
   const url = openUrl(preview.path);
   const mime = preview.mime;
-
   return (
-    <section className="preview">
+    <section className="preview-dock">
       <header>
         <strong>{preview.name}</strong>
         <button className="btn secondary" onClick={onClose}>
@@ -287,11 +401,10 @@ function RemotePreview({ preview, onClose }: { preview: Preview; onClose: () => 
         <TextPreview url={url} />
       ) : (
         <p className="muted">
-          Pré-visualização indisponível.{" "}
+          Sem pré-visualização.{" "}
           <a href={url} target="_blank" rel="noreferrer">
             Abrir remoto
-          </a>{" "}
-          ou baixar o arquivo.
+          </a>
         </p>
       )}
     </section>
@@ -309,7 +422,24 @@ function TextPreview({ url }: { url: string }) {
   return <pre>{text}</pre>;
 }
 
-function extLabel(name: string) {
-  const ext = name.includes(".") ? name.split(".").pop()!.slice(0, 3).toUpperCase() : "FILE";
+function tileClass(f: FileMeta) {
+  if (f.is_dir) return "folder";
+  if (f.mime.startsWith("image/")) return "image";
+  if (f.mime.startsWith("video/")) return "video";
+  return "file";
+}
+
+function tileLabel(f: FileMeta) {
+  if (f.is_dir) return "DIR";
+  if (f.mime.startsWith("image/")) return "IMG";
+  if (f.mime.startsWith("video/")) return "VID";
+  const ext = f.name.includes(".") ? f.name.split(".").pop()!.slice(0, 3).toUpperCase() : "DOC";
   return ext;
+}
+
+function formatDate(raw: string) {
+  if (!raw) return "—";
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }

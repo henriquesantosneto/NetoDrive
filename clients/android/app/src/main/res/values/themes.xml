@@ -3,10 +3,11 @@
         <item name="colorPrimary">@color/accent</item>
         <item name="colorPrimaryVariant">@color/bg2</item>
         <item name="colorOnPrimary">@color/bg</item>
-        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:statusBarColor">@color/accent</item>
         <item name="android:navigationBarColor">@color/bg</item>
         <item name="android:windowBackground">@color/bg</item>
         <item name="android:textColorPrimary">@color/ink</item>
         <item name="android:textColorSecondary">@color/muted</item>
+        <item name="colorOnPrimary">@color/surface</item>
     </style>
 </resources>
