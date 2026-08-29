@@ -18,7 +18,7 @@ internal sealed class ProviderHost : IDisposable
     private static readonly CF_CALLBACK FetchPlaceholdersCb = OnFetchPlaceholders;
     private static readonly CF_CALLBACK FetchDataCb = OnFetchData;
     private static readonly CF_CALLBACK NotifyDeleteCb = OnNotifyDelete;
-    private static readonly CF_CALLBACK NotifyUpdateCb = OnNotifyUpdate;
+    private static readonly CF_CALLBACK NotifyFileCloseCb = OnNotifyFileClose;
     private static readonly CF_CALLBACK NotifyDehydrateCb = OnNotifyDehydrate;
 
     private readonly AppConfig _cfg;
@@ -54,8 +54,8 @@ internal sealed class ProviderHost : IDisposable
             },
             new()
             {
-                Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_UPDATE,
-                Callback = NotifyUpdateCb,
+                Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_FILE_CLOSE_COMPLETION,
+                Callback = NotifyFileCloseCb,
             },
             new()
             {
@@ -137,15 +137,15 @@ internal sealed class ProviderHost : IDisposable
         }
     }
 
-    private static void OnNotifyUpdate(in CF_CALLBACK_INFO info, in CF_CALLBACK_PARAMETERS parameters)
+    private static void OnNotifyFileClose(in CF_CALLBACK_INFO info, in CF_CALLBACK_PARAMETERS parameters)
     {
         try
         {
-            _active?.HandleNotifyUpdate(info);
+            _active?.HandleNotifyFileClose(info, parameters);
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"NOTIFY_UPDATE erro: {ex.Message}");
+            Console.Error.WriteLine($"NOTIFY_FILE_CLOSE_COMPLETION erro: {ex.Message}");
         }
     }
 
@@ -161,8 +161,14 @@ internal sealed class ProviderHost : IDisposable
         }
     }
 
-    private void HandleNotifyUpdate(in CF_CALLBACK_INFO info)
+    private void HandleNotifyFileClose(in CF_CALLBACK_INFO info, in CF_CALLBACK_PARAMETERS parameters)
     {
+        if (parameters.CloseCompletion.Flags.HasFlag(
+                CF_CALLBACK_CLOSE_COMPLETION_FLAGS.CF_CALLBACK_CLOSE_COMPLETION_FLAG_DELETED))
+        {
+            return;
+        }
+
         var path = info.VolumeDosName + info.NormalizedPath;
         if (!path.StartsWith(_cfg.LocalFolder, StringComparison.OrdinalIgnoreCase))
             return;

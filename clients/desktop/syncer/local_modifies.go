@@ -11,7 +11,7 @@ func pendingLocalModifiesPath(localRoot string) string {
 	return filepath.Join(localChangesRoot(localRoot), "pending-modifies.txt")
 }
 
-// EnqueueLocalModify records a user edit under CFAPI (Explorer NOTIFY_UPDATE).
+// EnqueueLocalModify records a user edit under CFAPI (Explorer file close).
 func EnqueueLocalModify(localRoot, rel string) error {
 	rel = filepath.ToSlash(strings.Trim(rel, "/"))
 	if rel == "" {
