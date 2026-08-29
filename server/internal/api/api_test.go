@@ -275,3 +275,44 @@ func TestManifestSync(t *testing.T) {
 		t.Fatalf("download mismatch")
 	}
 }
+
+func TestSyncRename(t *testing.T) {
+	ts, _ := setup(t)
+	token := login(t, ts.URL)
+
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/sync/upload", bytes.NewReader([]byte("data")))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-File-Path", "a.txt")
+	req.Header.Set("Content-Type", "application/octet-stream")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+
+	body, _ := json.Marshal(map[string]string{"from": "a.txt", "to": "abc.txt"})
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/api/sync/rename", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("rename status %d: %s", res.StatusCode, b)
+	}
+	res.Body.Close()
+
+	req, _ = http.NewRequest(http.MethodGet, ts.URL+"/api/sync/manifest", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if !bytes.Contains(manifest, []byte("abc.txt")) || bytes.Contains(manifest, []byte(`"path":"a.txt"`)) {
+		t.Fatalf("manifest after rename: %s", manifest)
+	}
+}

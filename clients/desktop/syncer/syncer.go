@@ -128,57 +128,7 @@ func (c *Client) Upload(localPath, remotePath string) (*FileMeta, error) {
 	if err != nil {
 		return nil, err
 	}
-	req, err := c.authReq(http.MethodPut, "/api/sync/upload", f)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("X-File-Path", remotePath)
-	req.Header.Set("X-Device-Id", c.DeviceID)
-	req.Header.Set("X-File-Mtime", st.ModTime().UTC().Format(time.RFC3339Nano))
-	req.Header.Set("Content-Type", "application/octet-stream")
-	req.ContentLength = st.Size()
-
-	res, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(res.Body)
-		return nil, fmt.Errorf("upload failed: %s", string(b))
-	}
-	var meta FileMeta
-	if err := json.NewDecoder(res.Body).Decode(&meta); err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-func (c *Client) Rename(oldPath, newPath string) error {
-	oldPath = strings.Trim(strings.ReplaceAll(oldPath, "\\", "/"), "/")
-	newPath = strings.Trim(strings.ReplaceAll(newPath, "\\", "/"), "/")
-	if oldPath == "" || newPath == "" {
-		return fmt.Errorf("invalid rename paths")
-	}
-	body, err := json.Marshal(map[string]string{"from": oldPath, "to": newPath})
-	if err != nil {
-		return err
-	}
-	req, err := c.authReq(http.MethodPost, "/api/sync/rename", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	res, err := c.HTTP.Do(req)
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("rename failed: %s", string(b))
-	}
-	return nil
+	return c.uploadStream(f, st.Size(), remotePath, st.ModTime().UTC())
 }
 
 func (c *Client) Download(remotePath, localPath string) error {

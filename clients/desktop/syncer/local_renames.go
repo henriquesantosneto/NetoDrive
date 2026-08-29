@@ -170,25 +170,9 @@ func applyPendingLocalRenames(c *Client, localRoot, remotePrefix string, legacyR
 	}
 	for _, rn := range set {
 		from, to := rn.From, rn.To
-		_ = movePlaceholderMeta(localRoot, from, to)
-		st.Pinned = migratePinnedPaths(st.Pinned, from, to)
-		if h, ok := st.Known[from]; ok {
-			st.Known[to] = h
-			delete(st.Known, from)
-		}
-		if e, ok := st.Entries[from]; ok {
-			st.Entries[to] = e
-			delete(st.Entries, from)
-		}
-
-		oldRemote := remoteDeletePath(from, remotePrefix, legacyRemotes)
-		newRemote := to
-		if remotePrefix != "" {
-			newRemote = remotePrefix + "/" + to
-		}
-		syncLog("↪ rename remoto %s -> %s", oldRemote, newRemote)
-		if err := c.Rename(oldRemote, newRemote); err != nil {
-			return fmt.Errorf("rename remote %s -> %s: %w", oldRemote, newRemote, err)
+		renameLocalState(localRoot, st, from, to)
+		if err := renameRemotePaths(c, from, to, remotePrefix, legacyRemotes); err != nil {
+			return fmt.Errorf("rename remote %s -> %s: %w", from, to, err)
 		}
 		if err := ClearLocalRename(localRoot, rn); err != nil {
 			return err
