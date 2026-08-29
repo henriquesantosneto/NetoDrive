@@ -57,6 +57,9 @@ func migrateLegacyMetaSidecar(localRoot, rel string) {
 	if _, err := os.Stat(newPath); err == nil {
 		return
 	}
+	if cfapiProviderActive() {
+		return
+	}
 	oldPath := legacyMetaSidecarPath(localRoot, rel)
 	b, err := os.ReadFile(oldPath)
 	if err != nil {

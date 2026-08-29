@@ -129,6 +129,10 @@ New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
 $go = Get-Command go -ErrorAction SilentlyContinue
 $exeSrc = $null
 
+Write-Host "Encerrando netodrive-sync em execucao (libera exe e CFAPI)..."
+Get-Process netodrive-sync -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+
 if ($go) {
   Write-Host "Compilando netodrive-sync.exe (fonte atual) ..."
   $built = Join-Path $InstallDir "netodrive-sync.exe"
@@ -169,6 +173,12 @@ Opcoes:
 
 Write-Host "Usando: $exeSrc"
 Copy-Item $exeSrc (Join-Path $InstallDir "netodrive-sync.exe") -Force
+$verOut = & (Join-Path $InstallDir "netodrive-sync.exe") -version 2>&1 | Select-Object -First 1
+if ($verOut) {
+  Write-Host "Versao instalada: $verOut"
+} else {
+  Write-Host "AVISO: exe sem flag -version (binario antigo). Instale Go e rode Install de novo." -ForegroundColor Yellow
+}
 if ($go -and $exeSrc -ne (Join-Path $Root "netodrive-sync.exe")) {
   Copy-Item $exeSrc (Join-Path $Root "netodrive-sync.exe") -Force
 }

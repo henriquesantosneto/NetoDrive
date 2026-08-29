@@ -18,6 +18,8 @@ import (
 	"github.com/netodrive/desktop/syncer"
 )
 
+const buildVersion = "fast-path-cfapi-v6"
+
 type Config struct {
 	ServerURL   string `json:"server_url"`
 	Username    string `json:"username"`
@@ -52,6 +54,7 @@ func onDemandEnabled(cfg Config) bool {
 
 func main() {
 	cfgPath := flag.String("config", defaultConfigPath(), "path to config file")
+	showVersion := flag.Bool("version", false, "print build version and exit")
 	once := flag.Bool("once", false, "run a single sync and exit")
 	initCfg := flag.Bool("init", false, "write a sample config and exit")
 	ui := flag.Bool("ui", false, "open local OneDrive-style control panel and keep syncing")
@@ -61,6 +64,11 @@ func main() {
 	hydratePath := flag.String("hydrate", "", "download path now (file or folder prefix)")
 	printLocal := flag.Bool("print-local-folder", false, "print resolved local_folder and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(buildVersion)
+		return
+	}
 
 	onDemandDefault := true
 
@@ -115,7 +123,11 @@ func main() {
 		cfg.IntervalSec = 30
 	}
 	fmt.Printf("Pasta local de sync: %s\n", cfg.LocalFolder)
-	fmt.Fprintf(os.Stderr, "NetoDrive sync engine: fast-path CFAPI v5\n")
+	fmt.Fprintf(os.Stderr, "NetoDrive sync engine: %s\n", buildVersion)
+	cfapiActive := syncer.CfapiProviderInstalled()
+	if cfapiActive {
+		fmt.Fprintf(os.Stderr, "CFAPI ativo: sync automatico desligado (use Sincronizar agora no painel)\n")
+	}
 	onDemand := onDemandEnabled(cfg)
 	if onDemand {
 		fmt.Println("Modo: sob demanda (placeholder — baixa ao abrir ou fixar)")
@@ -206,6 +218,15 @@ func main() {
 
 		fmt.Fprintf(os.Stderr, "[%s] syncing %s ↔ arvore da conta (raiz)\n", time.Now().Format(time.RFC3339), cfg.LocalFolder)
 
+		fmt.Fprintln(os.Stderr, "sync: verificando alteracoes remotas...")
+		if ok, qerr := syncer.TryQuickSync(client, statePath, cfg.LocalFolder); qerr != nil {
+			fmt.Fprintf(os.Stderr, "sync: quick-check indisponivel (%v); sync completo\n", qerr)
+		} else if ok {
+			fmt.Fprintln(os.Stderr, "sync: sem alteracoes remotas (quick)")
+			fmt.Fprintln(os.Stderr, "sync ok")
+			return nil
+		}
+
 		fmt.Fprintln(os.Stderr, "sync: chamando engine...")
 		errCh := make(chan error, 1)
 		go func() {
@@ -240,12 +261,18 @@ func main() {
 	}
 
 	if *ui {
-		startControlPanel(cfg, *cfgPath, client, onDemand, run)
+		startControlPanel(cfg, *cfgPath, client, onDemand, cfapiActive, run)
 		return
 	}
 
 	if *once {
+		if err := run(); err != nil {
+			fatal(err)
+		}
 		return
+	}
+	if cfapiActive {
+		select {}
 	}
 	t := time.NewTicker(time.Duration(cfg.IntervalSec) * time.Second)
 	defer t.Stop()
@@ -254,12 +281,12 @@ func main() {
 	}
 }
 
-func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDemand bool, run func() error) {
+func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDemand bool, cfapiActive bool, run func() error) {
 	statePath := syncer.DefaultStatePath(cfgPath)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(controlPanelHTML(cfg, onDemand)))
+		_, _ = w.Write([]byte(controlPanelHTML(cfg, onDemand, cfapiActive)))
 	})
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		syncMu.Lock()
@@ -272,10 +299,17 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 		if running {
 			serverOK = true
 		}
+		intervalSec := cfg.IntervalSec
+		autoSync := !cfapiActive
+		if cfapiActive {
+			intervalSec = 0
+		}
 		writeJSON(w, map[string]any{
 			"server_url":         cfg.ServerURL,
 			"local_folder":       cfg.LocalFolder,
-			"interval_sec":       cfg.IntervalSec,
+			"interval_sec":       intervalSec,
+			"auto_sync":          autoSync,
+			"engine_version":     buildVersion,
 			"on_demand":          onDemand,
 			"web_url":            cfg.ServerURL,
 			"remote_tree":        "arvore da conta (raiz)",
@@ -386,22 +420,34 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 	fmt.Printf("Painel NetoDrive: %s\n", addr)
 	_ = openURL(addr)
 
-	go func() {
-		t := time.NewTicker(time.Duration(cfg.IntervalSec) * time.Second)
-		defer t.Stop()
-		for range t.C {
-			if err := run(); err != nil && strings.Contains(err.Error(), "sync ja em andamento") {
-				continue
+	if !cfapiActive {
+		go func() {
+			t := time.NewTicker(time.Duration(cfg.IntervalSec) * time.Second)
+			defer t.Stop()
+			for range t.C {
+				if err := run(); err != nil && strings.Contains(err.Error(), "sync ja em andamento") {
+					continue
+				}
 			}
-		}
-	}()
+		}()
+	}
 
 	if err := http.Serve(ln, mux); err != nil {
 		fatal(err)
 	}
 }
 
-func controlPanelHTML(cfg Config, onDemand bool) string {
+func controlPanelIntervalLabel(intervalSec int, cfapiActive bool) string {
+	if cfapiActive {
+		return "Manual (CFAPI)"
+	}
+	if intervalSec <= 0 {
+		intervalSec = 30
+	}
+	return fmt.Sprintf("%d s", intervalSec)
+}
+
+func controlPanelHTML(cfg Config, onDemand bool, cfapiActive bool) string {
 	mode := "Sob demanda — placeholders na pasta; baixe ao abrir ou fixe"
 	if !onDemand {
 		mode = "Espelho completo — todos os arquivos baixados"
@@ -441,7 +487,7 @@ button:hover{filter:brightness(.96)}
 <div><b>Servidor</b><span>` + cfg.ServerURL + `</span></div>
 <div><b>Pasta local</b><span>` + cfg.LocalFolder + `</span></div>
 <div><b>Remoto</b><span>Arvore da conta (raiz)</span></div>
-<div><b>Intervalo</b><span>` + fmt.Sprintf("%d s", cfg.IntervalSec) + `</span></div>
+<div><b>Intervalo</b><span id="interval">` + controlPanelIntervalLabel(cfg.IntervalSec, cfapiActive) + `</span></div>
 </div>
 <label>Caminho (arquivo ou pasta)
 <input id="path" placeholder="docs/relatorio.pdf ou Galeria"/>
@@ -483,12 +529,14 @@ if(i===59)m.textContent='Demorou mais que 30s — veja o console.'}
 finally{if(btn)btn.disabled=false;refreshServer()}}
 async function refreshServer(){
 const el=document.getElementById('srv');
+const iv=document.getElementById('interval');
 try{
 const s=await fetch('/api/status').then(r=>r.json());
 if(s.server_online){el.className='ok';el.textContent='Servidor online: '+s.server_url}
 else{el.className='bad';el.textContent='Servidor OFFLINE em '+s.server_url+' — inicie o NetoDrive server ou corrija server_url no netodrive.json'}
 if(s.sync_stuck){el.className='bad';el.textContent+=' — SYNC TRAVADO: feche e reabra o NetoDrive Sync ou clique Liberar sync'}
 else if(s.sync_running){el.textContent+=' (sync em andamento)'}
+if(iv){iv.textContent=s.auto_sync===false?'Manual (CFAPI)':((s.interval_sec||30)+' s')}
 }catch(e){el.className='bad';el.textContent='Nao foi possivel verificar o servidor.'}}
 async function resetSync(){const m=document.getElementById('msg');await post('/api/sync-reset');m.textContent='Sync liberado. Tente sincronizar de novo.';refreshServer()}
 refreshServer();setInterval(refreshServer,15000);
