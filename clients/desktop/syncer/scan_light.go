@@ -9,17 +9,37 @@ import (
 // scanLocalFilesLight builds the local index without a full tree walk (avoids CFAPI/Explorer hangs).
 func scanLocalFilesLight(localRoot string, known map[string]string) (map[string]string, error) {
 	local := indexMetaStore(localRoot)
+	if cfapiProviderActive() {
+		// Sidecar meta lives outside the sync root; only count files that exist on disk.
+		local = indexMetaStorePresent(localRoot)
+	}
 
-	// CFAPI sync root: keep known files from state, then discover new shallow files/dirs.
+	// CFAPI sync root: discover shallow files/dirs; only trust known entries that exist locally.
 	if cfapiProviderActive() {
 		known = filterKnownExcludingDeletes(localRoot, known)
-		for rel, hash := range known {
+		for rel := range known {
 			if _, ok := local[rel]; ok {
 				continue
 			}
-			if hash != "" {
-				local[rel] = hash
+			path := placeholderPath(localRoot, rel)
+			st, err := os.Stat(path)
+			if err != nil {
+				continue
 			}
+			if st.IsDir() {
+				continue
+			}
+			if isPlatformPlaceholder(path) {
+				if meta, ok := readPlaceholderMetaForRel(localRoot, rel); ok {
+					local[rel] = meta.Hash
+				}
+				continue
+			}
+			h, _, err := FileHash(path)
+			if err != nil {
+				continue
+			}
+			local[rel] = h
 		}
 		shallow, err := scanShallowNewFiles(localRoot, local)
 		for k, v := range shallow {

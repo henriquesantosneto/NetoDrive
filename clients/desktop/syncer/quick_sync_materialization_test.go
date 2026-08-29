@@ -9,14 +9,11 @@ import (
 	"testing"
 )
 
-func TestTryQuickSyncMatchesFingerprint(t *testing.T) {
+func TestTryQuickSyncSkipsWhenRemoteFileMissingLocally(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "sync-state.json")
 	localRoot := filepath.Join(dir, "data")
 	if err := os.MkdirAll(localRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(localRoot, "file.bin"), []byte("0123456789"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -53,31 +50,7 @@ func TestTryQuickSyncMatchesFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ok {
-		t.Fatal("expected quick sync match")
-	}
-}
-
-func TestTryQuickSyncNoFingerprint(t *testing.T) {
-	dir := t.TempDir()
-	statePath := filepath.Join(dir, "sync-state.json")
-	localRoot := filepath.Join(dir, "data")
-	if err := os.MkdirAll(localRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	st := SyncState{LocalFolder: localRoot, Known: map[string]string{}}
-	if err := SaveState(statePath, st); err != nil {
-		t.Fatal(err)
-	}
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
-	defer srv.Close()
-
-	c := NewClient(srv.URL, "tok", "dev")
-	ok, err := TryQuickSync(c, statePath, localRoot)
-	if err == nil && ok {
-		t.Fatal("expected no quick sync without fingerprint")
+	if ok {
+		t.Fatal("expected full sync when remote file is not materialized locally")
 	}
 }

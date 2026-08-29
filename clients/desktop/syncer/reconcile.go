@@ -7,9 +7,16 @@ type syncPlan struct {
 	deleteRemote []string
 }
 
+// PlanSyncOptions tunes reconciliation for CFAPI placeholder sync roots.
+type PlanSyncOptions struct {
+	// RematerializeMissing treats known-but-absent files as downloads instead of remote deletes.
+	RematerializeMissing bool
+	PendingLocalDeletes  map[string]bool
+}
+
 // planSync decides how to reconcile local disk with the remote manifest using
 // the last known synced snapshot (paths the client previously mirrored).
-func planSync(local, remote, known map[string]string) syncPlan {
+func planSync(local, remote, known map[string]string, opts PlanSyncOptions) syncPlan {
 	var p syncPlan
 
 	for rel, hash := range local {
@@ -34,6 +41,10 @@ func planSync(local, remote, known map[string]string) syncPlan {
 			continue
 		}
 		if _, wasKnown := known[rel]; wasKnown {
+			if opts.RematerializeMissing && !opts.PendingLocalDeletes[rel] {
+				p.download = append(p.download, rel)
+				continue
+			}
 			p.deleteRemote = append(p.deleteRemote, rel)
 			continue
 		}

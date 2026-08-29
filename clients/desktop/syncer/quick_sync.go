@@ -26,6 +26,9 @@ func TryQuickSync(c *Client, statePath, localRoot string) (bool, error) {
 		return false, nil
 	}
 	if fp != "" && fp == st.LastManifestFP {
+		if remoteFilesNeedMaterialization(localRoot, man) {
+			return false, nil
+		}
 		return true, nil
 	}
 	return false, nil

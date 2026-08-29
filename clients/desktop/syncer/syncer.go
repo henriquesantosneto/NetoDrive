@@ -316,8 +316,11 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	ensureKnownDirs(&st)
 	localDirsPeek, _ := scanLocalDirsForSync(localRoot)
 	if fp != "" && fp == st.LastManifestFP && !HasPendingLocalChanges(localRoot) && !dirsChanged(localDirsPeek, st.KnownDirs) {
-		syncLog("sync: sem alteracoes remotas (skip scan CFAPI)")
-		return SaveStateCached(statePath, st)
+		if !remoteFilesNeedMaterialization(localRoot, man) {
+			syncLog("sync: sem alteracoes remotas (skip scan CFAPI)")
+			return SaveStateCached(statePath, st)
+		}
+		syncLog("sync: manifest igual mas arquivos remotos precisam materializar")
 	}
 
 	syncLog("sync: aplicando changes remotos...")
@@ -445,7 +448,11 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		remoteHashes[rel] = e.Hash
 	}
 
-	plan := planSync(local, remoteHashes, st.Known)
+	pendingDeletes, _ := PendingLocalDeleteSet(localRoot)
+	plan := planSync(local, remoteHashes, st.Known, PlanSyncOptions{
+		RematerializeMissing: cfapiProviderActive(),
+		PendingLocalDeletes:  pendingDeletes,
+	})
 	syncLog("sync: plan upload=%d download=%d deleteLocal=%d deleteRemote=%d",
 		len(plan.upload), len(plan.download), len(plan.deleteLocal), len(plan.deleteRemote))
 
