@@ -44,3 +44,41 @@ func TestRenamePathMovesRecordWithoutBlobChange(t *testing.T) {
 		t.Fatal("old path should be gone")
 	}
 }
+
+func TestRemoveActivePathDoesNotPlaceFileInTrash(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "test.db"), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	u, err := st.CreateUser("remove", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := &store.FileMeta{
+		UserID: u.ID,
+		Path:   "dup.txt",
+		Name:   "dup.txt",
+		Hash:   "abc123",
+		Size:   3,
+		Mime:   "text/plain",
+	}
+	if err := st.UpsertFile(meta); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RemoveActivePath(u.ID, "dup.txt"); err != nil {
+		t.Fatal(err)
+	}
+	trash, err := st.ListTrash(u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trash) != 0 {
+		t.Fatalf("expected empty trash, got %d items", len(trash))
+	}
+	if _, err := st.GetFileByPath(u.ID, "dup.txt"); err == nil {
+		t.Fatal("path should be gone")
+	}
+}

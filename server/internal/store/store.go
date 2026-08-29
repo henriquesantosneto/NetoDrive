@@ -488,6 +488,39 @@ func (s *Store) Purge(userID int64, path string) error {
 	return nil
 }
 
+// RemoveActivePath permanently removes a file without placing it in trash.
+// Sync rename dedup uses this instead of SoftDelete so Explorer renames do not fill trash.
+func (s *Store) RemoveActivePath(userID int64, path string) error {
+	f, err := s.GetFileByPath(userID, path)
+	if err != nil {
+		return err
+	}
+	if f.Deleted {
+		return s.Purge(userID, path)
+	}
+	hash := f.Hash
+	isDir := f.IsDir
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec(`DELETE FROM changes WHERE file_id=?`, f.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM files WHERE id=?`, f.ID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if hash != "" && !isDir {
+		s.maybeRemoveBlob(hash)
+	}
+	return nil
+}
+
 func (s *Store) EmptyTrash(userID int64) (int, error) {
 	items, err := s.ListTrash(userID)
 	if err != nil {
