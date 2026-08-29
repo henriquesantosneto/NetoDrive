@@ -17,6 +17,27 @@ var skipDirNames = map[string]bool{
 	".netodrive":   true,
 }
 
+// repoTopSkipDirs: when local_folder is the git clone, do not sync source trees as user files.
+var repoTopSkipDirs = map[string]bool{
+	"clients":  true,
+	"server":   true,
+	"web":      true,
+	"scripts":  true,
+	"docs":     true,
+	"vendor":   true,
+	"android":  true,
+	"ios":      true,
+	"internal": true,
+}
+
+var syncWalkLocalRoot string
+var syncWalkLocalRootIsRepo bool
+
+func setSyncWalkContext(localRoot string) {
+	syncWalkLocalRoot = localRoot
+	syncWalkLocalRootIsRepo = IsLikelyRepoRoot(localRoot)
+}
+
 func shouldSkipWalkEntry(localRoot, absPath string, name string, isDir bool) bool {
 	if name == "" {
 		return false
@@ -27,6 +48,11 @@ func shouldSkipWalkEntry(localRoot, absPath string, name string, isDir bool) boo
 	}
 	if isDir && skipDirNames[name] {
 		return true
+	}
+	if syncWalkLocalRootIsRepo && isDir && localRoot == syncWalkLocalRoot {
+		if repoTopSkipDirs[name] {
+			return true
+		}
 	}
 	rel, err := filepath.Rel(localRoot, absPath)
 	if err != nil {

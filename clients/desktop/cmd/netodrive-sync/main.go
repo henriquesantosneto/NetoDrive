@@ -542,10 +542,10 @@ func suggestedAlternateSyncFolder(home, current string) string {
 
 func warnLocalFolderIssues(abs string) {
 	home, _ := os.UserHomeDir()
-	repoClone := filepath.Join(home, "NetoDrive")
-	if abs == repoClone || looksLikeRepoRoot(abs) {
-		fmt.Fprintf(os.Stderr, "Aviso: local_folder aponta para o projeto git (%s).\n", abs)
-		fmt.Fprintf(os.Stderr, "         Recomendado: pasta separada, ex. %s\n", suggestedAlternateSyncFolder(home, abs))
+	if syncer.IsLikelyRepoRoot(abs) {
+		fmt.Fprintf(os.Stderr, "Aviso: local_folder e o clone git (%s).\n", abs)
+		fmt.Fprintf(os.Stderr, "         Pastas clients/server/web nao serao enviadas ao servidor.\n")
+		fmt.Fprintf(os.Stderr, "         Recomendado: pasta so de dados, ex. %s\n", suggestedAlternateSyncFolder(home, abs))
 	}
 	if runtime.GOOS == "windows" && syncer.IsUnderOneDrive(abs) {
 		fmt.Fprintf(os.Stderr, "Aviso: local_folder esta dentro do OneDrive (%s).\n", abs)

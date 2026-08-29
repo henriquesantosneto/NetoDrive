@@ -58,6 +58,13 @@ func writePlatformPlaceholder(localRoot, rel string, meta placeholderMeta) error
 	if err := writePlaceholderMeta(localRoot, rel, meta); err != nil {
 		return err
 	}
+	if placeholderUpToDate(localRoot, rel, meta) {
+		return nil
+	}
+	// Bulk sync: meta + magic file only. Spawning CFAPI/PowerShell per file freezes Explorer.
+	if placeholderBulkSync {
+		return writePlaceholderMagic(localRoot, rel, meta)
+	}
 	if exe := providerExe(); exe != "" {
 		cfg := defaultConfigForProvider()
 		args := []string{

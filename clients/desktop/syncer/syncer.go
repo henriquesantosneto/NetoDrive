@@ -234,6 +234,8 @@ func FileHash(path string) (string, int64, error) {
 
 // SyncFolder mirrors localRoot with the account tree (placeholders when onDemand is true).
 func SyncFolder(c *Client, localRoot, statePath string, onDemand bool) error {
+	SetPlaceholderBulkSync(true)
+	defer SetPlaceholderBulkSync(false)
 	return syncFolder(c, localRoot, statePath, onDemand, "")
 }
 
@@ -242,6 +244,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	if err != nil {
 		return err
 	}
+	setSyncWalkContext(localRoot)
 	remotePrefix = strings.Trim(remotePrefix, "/")
 
 	st, err := LoadState(statePath, localRoot)
@@ -260,6 +263,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	if err != nil {
 		return err
 	}
+	fmt.Printf("sync: manifest com %d entradas\n", len(man.Files))
 	remotePre := map[string]ManifestEntry{}
 	for _, e := range man.Files {
 		if e.IsDir {
@@ -322,6 +326,8 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	}
 
 	plan := planSync(local, remoteHashes, st.Known)
+	fmt.Printf("sync: plan upload=%d download=%d deleteLocal=%d deleteRemote=%d\n",
+		len(plan.upload), len(plan.download), len(plan.deleteLocal), len(plan.deleteRemote))
 
 	for _, rel := range plan.deleteLocal {
 		fmt.Printf("× local %s (removido na web)\n", rel)
@@ -387,7 +393,8 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		if st.OnDemand && !isPinnedPath(st.Pinned, rel) {
 			fmt.Printf("☁ placeholder %s\n", rel)
 			if err := writePlaceholder(localRoot, rel, placeholderMeta{Hash: e.Hash, Size: e.Size}); err != nil {
-				return fmt.Errorf("placeholder %s: %w", rel, err)
+				fmt.Fprintf(os.Stderr, "aviso: placeholder %s: %v\n", rel, err)
+				continue
 			}
 			continue
 		}
