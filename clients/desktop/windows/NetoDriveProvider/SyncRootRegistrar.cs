@@ -55,6 +55,7 @@ internal static class SyncRootRegistrar
 
         StorageProviderSyncRootManager.Register(info);
         Thread.Sleep(1000);
+        SyncRootStatus.ConfirmRegistration(cfg);
     }
 
     internal static void Unregister(string localFolder)

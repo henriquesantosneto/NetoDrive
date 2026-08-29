@@ -18,6 +18,7 @@ if not exist "%CFG%" (
 REM Provider CFAPI: re-registra sync root (local_folder) e sobe o provider
 if exist "%~dp0netodrive-provider.exe" (
   "%~dp0netodrive-provider.exe" -register -config "%CFG%"
+  "%~dp0netodrive-provider.exe" -status -config "%CFG%"
   start "" /B "%~dp0netodrive-provider.exe" -run -config "%CFG%"
 )
 

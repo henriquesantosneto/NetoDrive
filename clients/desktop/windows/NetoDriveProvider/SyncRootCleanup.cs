@@ -30,6 +30,7 @@ internal static class SyncRootCleanup
     internal static void DeepUnregister(string localFolder)
     {
         localFolder = Normalize(localFolder);
+        var installDir = Normalize(SyncRootStatus.InstallDir);
 
         try
         {
@@ -41,15 +42,15 @@ internal static class SyncRootCleanup
                     var path = root.Path?.Path;
                     if (string.IsNullOrEmpty(id))
                         continue;
-                    if (!string.IsNullOrEmpty(path) &&
-                        Normalize(path).Equals(localFolder, StringComparison.OrdinalIgnoreCase))
+                    var remove = id.StartsWith(Paths.ProviderName + "!", StringComparison.OrdinalIgnoreCase);
+                    if (!remove && !string.IsNullOrEmpty(path))
                     {
-                        StorageProviderSyncRootManager.Unregister(id);
+                        var norm = Normalize(path);
+                        remove = norm.Equals(localFolder, StringComparison.OrdinalIgnoreCase) ||
+                                 norm.Equals(installDir, StringComparison.OrdinalIgnoreCase);
                     }
-                    else if (id.StartsWith(Paths.ProviderName + "!", StringComparison.OrdinalIgnoreCase))
-                    {
+                    if (remove)
                         StorageProviderSyncRootManager.Unregister(id);
-                    }
                 }
                 catch
                 {
@@ -71,11 +72,11 @@ internal static class SyncRootCleanup
             // ignore
         }
 
-        PurgeRegistry(localFolder);
+        PurgeRegistry(localFolder, installDir);
         Thread.Sleep(500);
     }
 
-    private static void PurgeRegistry(string localFolder)
+    private static void PurgeRegistry(string localFolder, string installDir)
     {
         const string basePath = @"Software\Microsoft\Windows\CurrentVersion\Explorer\SyncRootManager";
         try
@@ -93,9 +94,11 @@ internal static class SyncRootCleanup
                     {
                         using var sk = mgr.OpenSubKey(name);
                         var userRoot = sk?.GetValue("UserSyncRootPath") as string;
-                        if (!string.IsNullOrEmpty(userRoot) &&
-                            Normalize(userRoot).Equals(localFolder, StringComparison.OrdinalIgnoreCase))
-                            remove = true;
+                        if (string.IsNullOrEmpty(userRoot))
+                            continue;
+                        var norm = Normalize(userRoot);
+                        remove = norm.Equals(localFolder, StringComparison.OrdinalIgnoreCase) ||
+                                 norm.Equals(installDir, StringComparison.OrdinalIgnoreCase);
                     }
                     catch
                     {

@@ -6,6 +6,32 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Repo = Resolve-Path (Join-Path $Root "..\..\..")
 $InstallDir = Join-Path $env:LOCALAPPDATA "NetoDrive"
 $ConfigDir = Join-Path $env:APPDATA "NetoDrive"
+$SyncExe = Join-Path $InstallDir "netodrive-sync.exe"
+
+function Get-NetoDriveLocalFolder {
+  param([string]$CfgPath)
+  if (Test-Path $SyncExe) {
+    $resolved = & $SyncExe -print-local-folder -config $CfgPath 2>$null
+    if ($resolved) { return $resolved.Trim() }
+  }
+  if (-not (Test-Path $CfgPath)) {
+    return (Join-Path $env:USERPROFILE "NetoDrive")
+  }
+  try {
+    $j = Get-Content $CfgPath -Raw | ConvertFrom-Json
+    $folder = if ($j.local_folder) { $j.local_folder } else { $j.LocalFolder }
+    if (-not $folder) { return (Join-Path $env:USERPROFILE "NetoDrive") }
+    $folder = "$folder".Trim()
+    if ($folder -eq "~") { return $env:USERPROFILE }
+    if ($folder -match '^~[\\/]') { return (Join-Path $env:USERPROFILE $folder.Substring(2)) }
+    if (-not [System.IO.Path]::IsPathRooted($folder)) {
+      $folder = Join-Path (Split-Path $CfgPath -Parent) $folder
+    }
+    return [System.IO.Path]::GetFullPath($folder)
+  } catch {
+    return (Join-Path $env:USERPROFILE "NetoDrive")
+  }
+}
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
@@ -88,6 +114,8 @@ if ($dotnet) {
         Write-Host "  Edite $cfg e defina:" -ForegroundColor Yellow
         Write-Host "    `"local_folder`": `"$suggested`"" -ForegroundColor Yellow
         Write-Host "  Depois rode Install-NetoDrive.ps1 novamente." -ForegroundColor Yellow
+      } else {
+        & $providerExe -status -config $cfg
       }
     }
   }
@@ -112,15 +140,32 @@ if ($dotnet) {
   Write-Host "Instale .NET 8 SDK e rode Install-NetoDrive.ps1 novamente."
 }
 
+$localFolder = Get-NetoDriveLocalFolder -CfgPath $cfg
+New-Item -ItemType Directory -Force -Path $localFolder | Out-Null
+
 $desktop = [Environment]::GetFolderPath("Desktop")
-$shortcut = Join-Path $desktop "NetoDrive.lnk"
 $w = New-Object -ComObject WScript.Shell
-$s = $w.CreateShortcut($shortcut)
-$s.TargetPath = Join-Path $InstallDir "Start-NetoDrive.bat"
-$s.WorkingDirectory = $InstallDir
-$s.Description = "NetoDrive Sync"
+
+# Atalho na area de trabalho abre a PASTA DE SYNC (local_folder), nao a pasta do programa
+$folderShortcut = Join-Path $desktop "NetoDrive.lnk"
+$s = $w.CreateShortcut($folderShortcut)
+$s.TargetPath = Join-Path $env:WINDIR "explorer.exe"
+$s.Arguments = "`"$localFolder`""
+$s.IconLocation = "$(Join-Path $InstallDir 'netodrive-sync.exe'),0"
+$s.Description = "Pasta NetoDrive (local_folder)"
 $s.Save()
 
+# Atalho separado para subir sync + painel
+$appShortcut = Join-Path $desktop "NetoDrive Sync.lnk"
+$a = $w.CreateShortcut($appShortcut)
+$a.TargetPath = Join-Path $InstallDir "Start-NetoDrive.bat"
+$a.WorkingDirectory = $InstallDir
+$a.IconLocation = "$(Join-Path $InstallDir 'netodrive-sync.exe'),0"
+$a.Description = "NetoDrive Sync (painel + provider)"
+$a.Save()
+
 Write-Host "Instalado em $InstallDir"
-Write-Host "Atalho: $shortcut"
-Write-Host "Inicie pelo atalho NetoDrive na area de trabalho."
+Write-Host "Pasta de sync (local_folder): $localFolder"
+Write-Host "Atalho pasta: $folderShortcut"
+Write-Host "Atalho app:   $appShortcut"
+Write-Host "Inicie pelo atalho NetoDrive Sync ou NetoDrive (pasta)."

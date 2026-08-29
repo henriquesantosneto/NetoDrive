@@ -47,6 +47,7 @@ func main() {
 	pinPath := flag.String("pin", "", "keep path or folder always local (e.g. docs or report.pdf)")
 	unpinPath := flag.String("unpin", "", "release path from local pin (back to cloud placeholder)")
 	hydratePath := flag.String("hydrate", "", "download path now (file or folder prefix)")
+	printLocal := flag.Bool("print-local-folder", false, "print resolved local_folder and exit")
 	flag.Parse()
 
 	onDemandDefault := true
@@ -66,6 +67,15 @@ func main() {
 			fatal(err)
 		}
 		fmt.Printf("wrote %s\n", *cfgPath)
+		return
+	}
+
+	if *printLocal {
+		folder, err := loadResolvedLocalFolder(*cfgPath)
+		if err != nil {
+			fatal(err)
+		}
+		fmt.Println(folder)
 		return
 	}
 
@@ -406,6 +416,19 @@ func looksLikeRepoRoot(dir string) bool {
 		}
 	}
 	return false
+}
+
+func loadResolvedLocalFolder(cfgPath string) (string, error) {
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(cfg.LocalFolder) == "" {
+		cfg.LocalFolder = syncer.DefaultSyncFolder()
+	}
+	cfg.LocalFolder = syncer.ResolveLocalFolder(cfgPath, cfg.LocalFolder)
+	normalizeConfig(&cfg)
+	return cfg.LocalFolder, nil
 }
 
 func loadConfig(path string) (Config, error) {

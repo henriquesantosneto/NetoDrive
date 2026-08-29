@@ -40,6 +40,9 @@ internal static class Program
                     Console.WriteLine("Sync root registrado.");
                     return 0;
 
+                case "-status":
+                    return SyncRootStatus.Report(cfg, cfgPath);
+
                 case "-placeholder":
                     if (args.Length < 4)
                     {
@@ -79,7 +82,7 @@ internal static class Program
     private static void PrintUsage()
     {
         Console.WriteLine("""
-            netodrive-provider -register | -unregister | -run | -placeholder <rel> <hash> <size>
+            netodrive-provider -register | -unregister | -run | -status | -placeholder <rel> <hash> <size>
               -config <path>   (opcional, padrao %APPDATA%\\NetoDrive\\netodrive.json)
             """);
     }
