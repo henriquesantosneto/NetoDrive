@@ -8,23 +8,24 @@ using Win32FileAccess = Vanara.PInvoke.Kernel32.FileAccess;
 namespace NetoDriveProvider;
 
 /// <summary>
-/// CFAPI pin/hydrate/dehydrate using file handles (Vanara requires HFILE, not paths).
+/// CFAPI pin/hydrate/dehydrate using file handles (Vanara 4.0.4 API).
 /// </summary>
 internal static class CfPlaceholderOps
 {
     private const long Eof = -1;
+    private static readonly IntPtr NoOverlapped = IntPtr.Zero;
 
     internal static void SetPinState(string fullPath, CF_PIN_STATE state)
     {
         using var h = OpenReadHandle(fullPath);
-        CfSetPinState(h, state, CF_SET_PIN_FLAGS.CF_SET_PIN_FLAG_NONE, null).ThrowIfFailed();
+        CfSetPinState(h, state, CF_SET_PIN_FLAGS.CF_SET_PIN_FLAG_NONE, NoOverlapped).ThrowIfFailed();
     }
 
     internal static void Hydrate(string fullPath)
     {
         using var h = OpenReadHandle(fullPath);
-        CfSetPinState(h, CF_PIN_STATE.CF_PIN_STATE_PINNED, CF_SET_PIN_FLAGS.CF_SET_PIN_FLAG_NONE, null).ThrowIfFailed();
-        CfHydratePlaceholder(h, 0, Eof, CF_HYDRATE_FLAGS.CF_HYDRATE_FLAG_NONE, null).ThrowIfFailed();
+        CfSetPinState(h, CF_PIN_STATE.CF_PIN_STATE_PINNED, CF_SET_PIN_FLAGS.CF_SET_PIN_FLAG_NONE, NoOverlapped).ThrowIfFailed();
+        CfHydratePlaceholder(h, 0, Eof, CF_HYDRATE_FLAGS.CF_HYDRATE_FLAG_NONE, NoOverlapped).ThrowIfFailed();
     }
 
     internal static void Dehydrate(string fullPath)
@@ -36,8 +37,8 @@ internal static class CfPlaceholderOps
             try
             {
                 var h = CfGetWin32HandleFromProtectedHandle(protectedHandle);
-                CfSetPinState(h, CF_PIN_STATE.CF_PIN_STATE_UNPINNED, CF_SET_PIN_FLAGS.CF_SET_PIN_FLAG_NONE, null).ThrowIfFailed();
-                CfDehydratePlaceholder(h, 0, Eof, CF_HYDRATE_FLAGS.CF_HYDRATE_FLAG_NONE, null).ThrowIfFailed();
+                CfSetPinState(h, CF_PIN_STATE.CF_PIN_STATE_UNPINNED, CF_SET_PIN_FLAGS.CF_SET_PIN_FLAG_NONE, NoOverlapped).ThrowIfFailed();
+                CfDehydratePlaceholder(h, 0, Eof, CF_DEHYDRATE_FLAGS.CF_DEHYDRATE_FLAG_NONE, NoOverlapped).ThrowIfFailed();
             }
             finally
             {
@@ -50,7 +51,7 @@ internal static class CfPlaceholderOps
     {
         var h = CreateFile(
             fullPath,
-            (uint)(Win32FileAccess.FILE_READ_DATA | Win32FileAccess.FILE_READ_ATTRIBUTES),
+            Win32FileAccess.FILE_READ_DATA | Win32FileAccess.FILE_READ_ATTRIBUTES,
             FileShare.ReadWrite,
             null,
             FileMode.Open,
