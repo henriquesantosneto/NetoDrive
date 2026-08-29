@@ -248,6 +248,26 @@ func SyncFolder(c *Client, localRoot, statePath string, onDemand bool) error {
 	return syncFolder(c, localRoot, statePath, onDemand, "")
 }
 
+func (c *Client) CreateRemoteDir(remotePath string) error {
+	body, _ := json.Marshal(map[string]bool{"is_dir": true})
+	req, err := c.authReq(http.MethodPost, "/api/files/"+escapePath(remotePath), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Device-Id", c.DeviceID)
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("mkdir failed: %s", string(b))
+	}
+	return nil
+}
+
 func manifestFingerprint(m *Manifest) string {
 	if m == nil {
 		return ""
@@ -256,6 +276,7 @@ func manifestFingerprint(m *Manifest) string {
 	fmt.Fprintf(h, "v%d|", m.Version)
 	for _, e := range m.Files {
 		if e.IsDir {
+			fmt.Fprintf(h, "D:%s;", e.Path)
 			continue
 		}
 		fmt.Fprintf(h, "%s:%s:%d;", e.Path, e.Hash, e.Size)
@@ -292,7 +313,9 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	}
 	syncLog("sync: manifest com %d entradas", len(man.Files))
 	fp := manifestFingerprint(man)
-	if fp != "" && fp == st.LastManifestFP && !HasPendingLocalChanges(localRoot) {
+	ensureKnownDirs(&st)
+	localDirsPeek, _ := scanLocalDirsForSync(localRoot)
+	if fp != "" && fp == st.LastManifestFP && !HasPendingLocalChanges(localRoot) && !dirsChanged(localDirsPeek, st.KnownDirs) {
 		syncLog("sync: sem alteracoes remotas (skip scan CFAPI)")
 		return SaveStateCached(statePath, st)
 	}
@@ -340,14 +363,16 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	if err != nil {
 		return err
 	}
-	syncLog("sync: %d arquivos locais indexados", len(local))
+	localDirs, err := scanLocalDirsForSync(localRoot)
+	if err != nil {
+		return err
+	}
+	syncLog("sync: %d arquivos locais, %d pastas locais", len(local), len(localDirs))
 
 	remote := map[string]ManifestEntry{}
+	remoteDirs := map[string]bool{}
 	legacyRemotes := map[string]string{}
 	for _, e := range man.Files {
-		if e.IsDir {
-			continue
-		}
 		path := e.Path
 		if remotePrefix != "" {
 			if !strings.HasPrefix(path, remotePrefix+"/") && path != remotePrefix {
@@ -362,10 +387,57 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		if rel == "" {
 			continue
 		}
+		if e.IsDir {
+			remoteDirs[rel] = true
+			continue
+		}
 		if legacyRemote != "" {
 			legacyRemotes[rel] = e.Path
 		}
 		remote[rel] = e
+	}
+
+	dirPlan := planDirSync(localDirs, remoteDirs, st.KnownDirs)
+	syncLog("sync: dirs upload=%d download=%d deleteLocal=%d deleteRemote=%d",
+		len(dirPlan.upload), len(dirPlan.download), len(dirPlan.deleteLocal), len(dirPlan.deleteRemote))
+
+	sortDirsByDepth(dirPlan.upload)
+	for _, rel := range dirPlan.upload {
+		remotePath := rel
+		if remotePrefix != "" {
+			remotePath = remotePrefix + "/" + rel
+		}
+		syncLog("↑ dir %s", remotePath)
+		if err := c.CreateRemoteDir(remotePath); err != nil {
+			return fmt.Errorf("mkdir remote %s: %w", remotePath, err)
+		}
+	}
+
+	for _, rel := range dirPlan.download {
+		syncLog("↓ dir %s", rel)
+		if err := createLocalDir(localRoot, rel); err != nil {
+			fmt.Fprintf(os.Stderr, "aviso: mkdir local %s: %v\n", rel, err)
+		}
+	}
+
+	for _, rel := range dirPlan.deleteLocal {
+		syncLog("× dir local %s (removido na web)", rel)
+		if err := deleteLocalDir(localRoot, rel); err != nil {
+			fmt.Fprintf(os.Stderr, "aviso: nao foi possivel remover pasta %s: %v\n", rel, err)
+			continue
+		}
+		delete(localDirs, rel)
+		delete(st.KnownDirs, rel)
+	}
+
+	for _, rel := range dirPlan.deleteRemote {
+		remotePath := remoteDeletePath(rel, remotePrefix, nil)
+		syncLog("× dir remoto %s (removido neste PC)", remotePath)
+		if err := c.Delete(remotePath); err != nil {
+			return fmt.Errorf("delete remote dir %s: %w", remotePath, err)
+		}
+		delete(remoteDirs, rel)
+		delete(st.KnownDirs, rel)
 	}
 
 	remoteHashes := map[string]string{}
@@ -473,7 +545,12 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	if err != nil {
 		return err
 	}
+	localDirs, err = scanLocalDirsForSync(localRoot)
+	if err != nil {
+		return err
+	}
 	st.Known = local
+	st.KnownDirs = localDirs
 	st.Entries = rebuildEntries(localRoot, local, remote, st)
 
 	newCursor, err = applyRemoteChanges(c, localRoot, st.ChangeCursor)

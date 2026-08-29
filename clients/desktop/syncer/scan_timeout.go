@@ -40,3 +40,21 @@ func scanLocalFilesLightWithTimeout(localRoot string, known map[string]string, t
 		return nil, fmt.Errorf("scan leve excedeu %s (CFAPI/Explorer)", timeout)
 	}
 }
+
+func scanLocalDirsWithTimeout(localRoot string, timeout time.Duration) (map[string]bool, error) {
+	type result struct {
+		dirs map[string]bool
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		dirs, err := scanLocalDirsLight(localRoot)
+		ch <- result{dirs, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.dirs, r.err
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("scan de pastas locais excedeu %s", timeout)
+	}
+}

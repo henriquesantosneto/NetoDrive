@@ -29,6 +29,7 @@ type SyncState struct {
 	Pinned           []string             `json:"pinned,omitempty"`
 	Entries          map[string]FileEntry `json:"entries,omitempty"`
 	Known            map[string]string    `json:"known,omitempty"` // legacy: path -> hash
+	KnownDirs        map[string]bool      `json:"known_dirs,omitempty"`
 	LastManifestFP   string               `json:"last_manifest_fp,omitempty"`
 }
 
@@ -41,6 +42,7 @@ func LoadState(path, localFolder string) (SyncState, error) {
 		LocalFolder: localFolder,
 		OnDemand:    true,
 		Known:       map[string]string{},
+		KnownDirs:   map[string]bool{},
 		Entries:     map[string]FileEntry{},
 	}
 	b, err := os.ReadFile(path)
@@ -51,10 +53,13 @@ func LoadState(path, localFolder string) (SyncState, error) {
 		return st, err
 	}
 	if err := json.Unmarshal(b, &st); err != nil {
-		return SyncState{LocalFolder: localFolder, OnDemand: true, Known: map[string]string{}, Entries: map[string]FileEntry{}}, nil
+		return SyncState{LocalFolder: localFolder, OnDemand: true, Known: map[string]string{}, KnownDirs: map[string]bool{}, Entries: map[string]FileEntry{}}, nil
 	}
 	if st.Known == nil {
 		st.Known = map[string]string{}
+	}
+	if st.KnownDirs == nil {
+		st.KnownDirs = map[string]bool{}
 	}
 	if st.Entries == nil {
 		st.Entries = map[string]FileEntry{}
@@ -69,6 +74,7 @@ func LoadState(path, localFolder string) (SyncState, error) {
 		st.LocalFolder = localFolder
 		st.ChangeCursor = 0
 		st.Known = map[string]string{}
+		st.KnownDirs = map[string]bool{}
 		st.Entries = map[string]FileEntry{}
 	} else if localFolder != "" {
 		st.LocalFolder = localFolder

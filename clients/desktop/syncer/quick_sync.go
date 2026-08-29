@@ -21,6 +21,10 @@ func TryQuickSync(c *Client, statePath, localRoot string) (bool, error) {
 	if HasPendingLocalChanges(localRoot) {
 		return false, nil
 	}
+	localDirs, err := scanLocalDirsForSync(localRoot)
+	if err == nil && dirsChanged(localDirs, st.KnownDirs) {
+		return false, nil
+	}
 	if fp != "" && fp == st.LastManifestFP {
 		return true, nil
 	}

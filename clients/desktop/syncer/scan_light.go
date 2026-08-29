@@ -10,7 +10,7 @@ import (
 func scanLocalFilesLight(localRoot string, known map[string]string) (map[string]string, error) {
 	local := indexMetaStore(localRoot)
 
-	// CFAPI sync root: meta + sync-state only — zero access to the sync folder (ReadDir/Stat freeze Explorer).
+	// CFAPI sync root: keep known files from state, then discover new shallow files/dirs.
 	if cfapiProviderActive() {
 		known = filterKnownExcludingDeletes(localRoot, known)
 		for rel, hash := range known {
@@ -21,7 +21,11 @@ func scanLocalFilesLight(localRoot string, known map[string]string) (map[string]
 				local[rel] = hash
 			}
 		}
-		return local, nil
+		shallow, err := scanShallowNewFiles(localRoot, local)
+		for k, v := range shallow {
+			local[k] = v
+		}
+		return local, err
 	}
 
 	for rel, oldHash := range known {
