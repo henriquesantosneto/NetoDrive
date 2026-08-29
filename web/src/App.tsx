@@ -11,9 +11,11 @@ import {
   emptyTrash,
   FileMeta,
   formatSize,
+  GalleryAlbum,
   getToken,
   listFiles,
-  listGallery,
+  listGalleryAlbum,
+  listGalleryAlbums,
   listTrash,
   login,
   openUrl,
@@ -111,6 +113,10 @@ function Drive({ onLogout }: { onLogout: () => void }) {
   const [pending, start] = useTransition();
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  const [galleryAlbums, setGalleryAlbums] = useState<GalleryAlbum[]>([]);
+  const [galleryAlbumPath, setGalleryAlbumPath] = useState<string | null>(null);
+  const [galleryItems, setGalleryItems] = useState<FileMeta[]>([]);
+
   function clearSelection() {
     setSelected(new Set());
   }
@@ -132,14 +138,49 @@ function Drive({ onLogout }: { onLogout: () => void }) {
     });
   }
 
+  function loadGalleryAlbums() {
+    start(async () => {
+      try {
+        setError("");
+        clearSelection();
+        setGalleryAlbumPath(null);
+        setGalleryItems([]);
+        const res = await listGalleryAlbums();
+        setGalleryAlbums(res.albums);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erro ao listar álbuns");
+      }
+    });
+  }
+
+  function openGalleryAlbum(albumPath: string) {
+    start(async () => {
+      try {
+        setError("");
+        clearSelection();
+        const res = await listGalleryAlbum(albumPath);
+        setGalleryAlbumPath(res.path);
+        setGalleryItems(res.items);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erro ao abrir álbum");
+      }
+    });
+  }
+
   function refresh(nextPath = path) {
     start(async () => {
       try {
         setError("");
         clearSelection();
         if (view === "gallery") {
-          const res = await listGallery(120, 0);
-          setFiles(res.items);
+          if (galleryAlbumPath) {
+            const res = await listGalleryAlbum(galleryAlbumPath);
+            setGalleryAlbumPath(res.path);
+            setGalleryItems(res.items);
+          } else {
+            const res = await listGalleryAlbums();
+            setGalleryAlbums(res.albums);
+          }
         } else if (view === "trash") {
           const res = await listTrash();
           setFiles(res.items);
@@ -155,7 +196,11 @@ function Drive({ onLogout }: { onLogout: () => void }) {
   }
 
   useEffect(() => {
-    refresh(view === "files" ? path : "");
+    if (view === "gallery") {
+      loadGalleryAlbums();
+    } else {
+      refresh(view === "files" ? path : "");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
@@ -164,6 +209,22 @@ function Drive({ onLogout }: { onLogout: () => void }) {
     if (!q) return files;
     return files.filter((f) => f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q));
   }, [files, query]);
+
+  const filteredAlbums = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return galleryAlbums;
+    return galleryAlbums.filter(
+      (a) => a.name.toLowerCase().includes(q) || a.path.toLowerCase().includes(q),
+    );
+  }, [galleryAlbums, query]);
+
+  const filteredGalleryItems = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return galleryItems;
+    return galleryItems.filter(
+      (f) => f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q),
+    );
+  }, [galleryItems, query]);
 
   async function onUpload(list: FileList | null) {
     if (!list?.length) return;
@@ -277,8 +338,19 @@ function Drive({ onLogout }: { onLogout: () => void }) {
   }
 
   const crumbs = path ? path.split("/") : [];
+  const openAlbum = galleryAlbumPath
+    ? galleryAlbums.find((a) => a.path === galleryAlbumPath)
+    : undefined;
   const title =
-    view === "gallery" ? "Galeria" : view === "trash" ? "Lixeira" : path ? crumbs[crumbs.length - 1] : "Meus arquivos";
+    view === "gallery"
+      ? galleryAlbumPath
+        ? openAlbum?.name || galleryAlbumPath.split("/").pop() || "Galeria"
+        : "Galeria"
+      : view === "trash"
+        ? "Lixeira"
+        : path
+          ? crumbs[crumbs.length - 1]
+          : "Meus arquivos";
   const selectedCount = selected.size;
   const allFilteredSelected = filtered.length > 0 && filtered.every((f) => selected.has(f.path));
 
@@ -306,7 +378,7 @@ function Drive({ onLogout }: { onLogout: () => void }) {
       <aside className="sidebar">
         <button
           type="button"
-          className={`nav-item ${view === "files" && !path.startsWith("Gallery") ? "active" : ""}`}
+          className={`nav-item ${view === "files" ? "active" : ""}`}
           onClick={() => {
             setView("files");
             setPath("");
@@ -324,44 +396,6 @@ function Drive({ onLogout }: { onLogout: () => void }) {
           }}
         >
           <span className="nav-icon">Gl</span> Galeria
-        </button>
-        <button
-          type="button"
-          className={`nav-item ${path === "PC" ? "active" : ""}`}
-          onClick={() => {
-            setView("files");
-            setPath("PC");
-            setPreview(null);
-            start(async () => {
-              try {
-                const res = await listFiles("PC");
-                setFiles(res.files);
-              } catch (err) {
-                setError(err instanceof Error ? err.message : "Erro");
-              }
-            });
-          }}
-        >
-          <span className="nav-icon">PC</span> Este computador
-        </button>
-        <button
-          type="button"
-          className="nav-item"
-          onClick={() => {
-            setView("files");
-            setPath("Gallery");
-            setPreview(null);
-            start(async () => {
-              try {
-                const res = await listFiles("Gallery");
-                setFiles(res.files);
-              } catch (err) {
-                setError(err instanceof Error ? err.message : "Erro");
-              }
-            });
-          }}
-        >
-          <span className="nav-icon">And</span> Do Android
         </button>
         <button
           type="button"
@@ -401,7 +435,9 @@ function Drive({ onLogout }: { onLogout: () => void }) {
             </p>
           ) : (
             <p className="muted" style={{ margin: "0.35rem 0 0" }}>
-              Fotos sincronizadas dos dispositivos (modo cache no Android)
+              {galleryAlbumPath
+                ? "Mídia deste álbum"
+                : "Álbuns da pasta Galeria — fotos e vídeos sincronizados"}
             </p>
           )}
         </div>
@@ -426,12 +462,17 @@ function Drive({ onLogout }: { onLogout: () => void }) {
               </button>
             </>
           ) : null}
+          {view === "gallery" && galleryAlbumPath ? (
+            <button className="btn secondary" onClick={loadGalleryAlbums}>
+              ← Voltar aos álbuns
+            </button>
+          ) : null}
           {view === "trash" ? (
             <button className="btn danger" onClick={() => void onEmptyTrash()}>
               Esvaziar lixeira
             </button>
           ) : null}
-          {selectedCount > 0 ? (
+          {selectedCount > 0 && view !== "gallery" ? (
             <div className="bulk-bar">
               <span className="muted">{selectedCount} selecionado(s)</span>
               {view === "trash" ? (
@@ -464,106 +505,180 @@ function Drive({ onLogout }: { onLogout: () => void }) {
           {error ? <span className="error">{error}</span> : null}
         </div>
 
-        <div className="file-table">
-          {filtered.length === 0 ? (
-            <div className="empty">
-              <h3>{pending ? "Carregando…" : view === "trash" ? "Lixeira vazia" : "Esta pasta está vazia"}</h3>
-              <p>
-                {view === "trash"
-                  ? "Arquivos excluidos aparecem aqui ate a exclusao definitiva."
-                  : "Envie arquivos pela web, pelo cliente Windows ou sincronize a galeria no Android."}
-              </p>
-            </div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th className="col-check">
-                    <input
-                      type="checkbox"
-                      checked={allFilteredSelected}
-                      onChange={() => toggleSelectAll(filtered)}
-                      aria-label="Selecionar todos"
-                    />
-                  </th>
-                  <th>Nome</th>
-                  <th>Modificado</th>
-                  <th>Tamanho</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((f) => (
-                  <tr key={f.id} className={selected.has(f.path) ? "selected" : undefined}>
-                    <td className="col-check">
+        {view === "gallery" ? (
+          <div className="gallery-pane">
+            {galleryAlbumPath === null ? (
+              filteredAlbums.length === 0 ? (
+                <div className="empty">
+                  <h3>{pending ? "Carregando…" : "Nenhum álbum"}</h3>
+                  <p>
+                    Crie pastas dentro de Galeria (na árvore de arquivos) ou sincronize a galeria no
+                    Android.
+                  </p>
+                </div>
+              ) : (
+                <div className="album-grid">
+                  {filteredAlbums.map((album) => (
+                    <button
+                      key={album.path}
+                      type="button"
+                      className="album-card"
+                      onClick={() => openGalleryAlbum(album.path)}
+                    >
+                      <div className="album-cover">
+                        {album.cover ? (
+                          <img src={openUrl(album.cover)} alt="" />
+                        ) : (
+                          <span className="album-cover-fallback">Álbum</span>
+                        )}
+                      </div>
+                      <div className="album-meta">
+                        <strong>{album.name}</strong>
+                        <span className="muted">
+                          {album.count} {album.count === 1 ? "item" : "itens"}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )
+            ) : filteredGalleryItems.length === 0 ? (
+              <div className="empty">
+                <h3>{pending ? "Carregando…" : "Álbum vazio"}</h3>
+                <p>Não há fotos ou vídeos neste álbum.</p>
+              </div>
+            ) : (
+              <div className="media-grid">
+                {filteredGalleryItems.map((item) => {
+                  const isVideo = item.mime.startsWith("video/");
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="media-thumb"
+                      onClick={() =>
+                        setPreview({ path: item.path, name: item.name, mime: item.mime })
+                      }
+                      title={item.name}
+                    >
+                      {isVideo ? (
+                        <video src={openUrl(item.path)} muted preload="metadata" />
+                      ) : (
+                        <img src={openUrl(item.path)} alt={item.name} loading="lazy" />
+                      )}
+                      {isVideo ? <span className="media-badge">VID</span> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="file-table">
+            {filtered.length === 0 ? (
+              <div className="empty">
+                <h3>
+                  {pending ? "Carregando…" : view === "trash" ? "Lixeira vazia" : "Esta pasta está vazia"}
+                </h3>
+                <p>
+                  {view === "trash"
+                    ? "Arquivos excluidos aparecem aqui ate a exclusao definitiva."
+                    : "Envie arquivos pela web, pelo cliente Windows ou sincronize a galeria no Android."}
+                </p>
+              </div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th className="col-check">
                       <input
                         type="checkbox"
-                        checked={selected.has(f.path)}
-                        onChange={() => toggleSelect(f.path)}
-                        aria-label={`Selecionar ${f.name}`}
+                        checked={allFilteredSelected}
+                        onChange={() => toggleSelectAll(filtered)}
+                        aria-label="Selecionar todos"
                       />
-                    </td>
-                    <td>
-                      <div className="file-name-cell">
-                        <span className={`icon-tile ${tileClass(f)}`}>{tileLabel(f)}</span>
-                        {view !== "trash" && f.is_dir ? (
-                          <button type="button" className="linkish" onClick={() => refresh(f.path)}>
-                            {f.name}
-                          </button>
-                        ) : view !== "trash" && !f.is_dir ? (
-                          <button
-                            type="button"
-                            className="linkish"
-                            onClick={() => setPreview({ path: f.path, name: f.name, mime: f.mime })}
-                          >
-                            {f.name}
-                          </button>
-                        ) : (
-                          <span>{f.name}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="muted">{formatDate(f.mtime)}</td>
-                    <td className="muted">{f.is_dir ? "—" : formatSize(f.size)}</td>
-                    <td>
-                      <div className="row-actions">
-                        {view === "trash" ? (
-                          <>
-                            <button className="btn ghost" onClick={() => void onRestore(f)}>
-                              Restaurar
-                            </button>
-                            <button className="btn ghost" onClick={() => void onPurge(f)}>
-                              Excluir definitivo
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            {!f.is_dir ? (
-                              <>
-                                <button
-                                  className="btn ghost"
-                                  onClick={() => setPreview({ path: f.path, name: f.name, mime: f.mime })}
-                                >
-                                  Abrir
-                                </button>
-                                <a className="btn ghost" href={downloadUrl(f.path)} download={f.name}>
-                                  Baixar
-                                </a>
-                              </>
-                            ) : null}
-                            <button className="btn ghost" onClick={() => void onDelete(f)}>
-                              Excluir
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
+                    </th>
+                    <th>Nome</th>
+                    <th>Modificado</th>
+                    <th>Tamanho</th>
+                    <th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+                </thead>
+                <tbody>
+                  {filtered.map((f) => (
+                    <tr key={f.id} className={selected.has(f.path) ? "selected" : undefined}>
+                      <td className="col-check">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(f.path)}
+                          onChange={() => toggleSelect(f.path)}
+                          aria-label={`Selecionar ${f.name}`}
+                        />
+                      </td>
+                      <td>
+                        <div className="file-name-cell">
+                          <span className={`icon-tile ${tileClass(f)}`}>{tileLabel(f)}</span>
+                          {view !== "trash" && f.is_dir ? (
+                            <button type="button" className="linkish" onClick={() => refresh(f.path)}>
+                              {f.name}
+                            </button>
+                          ) : view !== "trash" && !f.is_dir ? (
+                            <button
+                              type="button"
+                              className="linkish"
+                              onClick={() => setPreview({ path: f.path, name: f.name, mime: f.mime })}
+                            >
+                              {f.name}
+                            </button>
+                          ) : (
+                            <span>{f.name}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="muted">{formatDate(f.mtime)}</td>
+                      <td className="muted">{f.is_dir ? "—" : formatSize(f.size)}</td>
+                      <td>
+                        <div className="row-actions">
+                          {view === "trash" ? (
+                            <>
+                              <button className="btn ghost" onClick={() => void onRestore(f)}>
+                                Restaurar
+                              </button>
+                              <button className="btn ghost" onClick={() => void onPurge(f)}>
+                                Excluir definitivo
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              {!f.is_dir ? (
+                                <>
+                                  <button
+                                    className="btn ghost"
+                                    onClick={() =>
+                                      setPreview({ path: f.path, name: f.name, mime: f.mime })
+                                    }
+                                  >
+                                    Abrir
+                                  </button>
+                                  <a className="btn ghost" href={downloadUrl(f.path)} download={f.name}>
+                                    Baixar
+                                  </a>
+                                </>
+                              ) : null}
+                              <button className="btn ghost" onClick={() => void onDelete(f)}>
+                                Excluir
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
 
         {preview ? <RemotePreview preview={preview} onClose={() => setPreview(null)} /> : null}
       </main>
