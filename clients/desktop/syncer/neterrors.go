@@ -1,10 +1,12 @@
 package syncer
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // IsConnectionError reports network / server reachability failures.
@@ -25,7 +27,9 @@ func IsConnectionError(err error) bool {
 
 // Ping checks that the NetoDrive server responds (fast fail when offline).
 func (c *Client) Ping() error {
-	req, err := http.NewRequest(http.MethodGet, c.BaseURL+"/api/health", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/api/health", nil)
 	if err != nil {
 		return err
 	}

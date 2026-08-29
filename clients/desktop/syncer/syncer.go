@@ -235,13 +235,25 @@ func FileHash(path string) (string, int64, error) {
 // SyncFolder mirrors localRoot with the account tree (placeholders when onDemand is true).
 func SyncFolder(c *Client, localRoot, statePath string, onDemand bool) error {
 	syncLog("sync: iniciando...")
-	if !syncFolderMu.TryLock() {
-		return fmt.Errorf("sync interno ja em andamento (aguarde o ciclo anterior)")
-	}
-	defer syncFolderMu.Unlock()
 	SetPlaceholderBulkSync(true)
 	defer SetPlaceholderBulkSync(false)
 	return syncFolder(c, localRoot, statePath, onDemand, "")
+}
+
+func manifestFingerprint(m *Manifest) string {
+	if m == nil {
+		return ""
+	}
+	h := sha256.New()
+	fmt.Fprintf(h, "v%d|", m.Version)
+	for _, e := range m.Files {
+		if e.IsDir {
+			continue
+		}
+		fmt.Fprintf(h, "%s:%s:%d;", e.Path, e.Hash, e.Size)
+	}
+	sum := h.Sum(nil)
+	return hex.EncodeToString(sum[:8])
 }
 
 func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePrefix string) error {
@@ -283,6 +295,11 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		return err
 	}
 	syncLog("sync: manifest com %d entradas", len(man.Files))
+	fp := manifestFingerprint(man)
+	if fp != "" && fp == st.LastManifestFP {
+		syncLog("sync: sem alteracoes remotas (skip scan CFAPI)")
+		return SaveState(statePath, st)
+	}
 	remotePre := map[string]ManifestEntry{}
 	for _, e := range man.Files {
 		if e.IsDir {
@@ -455,6 +472,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		st.ChangeCursor = newCursor
 	}
 
+	st.LastManifestFP = fp
 	return SaveState(statePath, st)
 }
 

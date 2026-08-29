@@ -3,7 +3,6 @@ package syncer
 import (
 	"path/filepath"
 	"strings"
-	"sync"
 )
 
 // skipDirNames are never descended into during sync.
@@ -34,7 +33,6 @@ var repoTopSkipDirs = map[string]bool{
 var syncWalkLocalRoot string
 var syncWalkLocalRootIsRepo bool
 var repoRootCache = map[string]bool{}
-var syncFolderMu sync.Mutex
 
 func setSyncWalkContext(localRoot string, st *SyncState) {
 	syncWalkLocalRoot = localRoot

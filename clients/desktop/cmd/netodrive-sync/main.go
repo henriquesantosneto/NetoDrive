@@ -115,6 +115,7 @@ func main() {
 		cfg.IntervalSec = 30
 	}
 	fmt.Printf("Pasta local de sync: %s\n", cfg.LocalFolder)
+	fmt.Fprintf(os.Stderr, "NetoDrive sync engine: fast-path CFAPI v4\n")
 	onDemand := onDemandEnabled(cfg)
 	if onDemand {
 		fmt.Println("Modo: sob demanda (placeholder — baixa ao abrir ou fixar)")
@@ -196,6 +197,12 @@ func main() {
 		syncRunning = true
 		syncStarted = time.Now()
 		syncMu.Unlock()
+		defer func() {
+			syncMu.Lock()
+			syncRunning = false
+			syncFinished = time.Now()
+			syncMu.Unlock()
+		}()
 
 		fmt.Fprintf(os.Stderr, "[%s] syncing %s ↔ arvore da conta (raiz)\n", time.Now().Format(time.RFC3339), cfg.LocalFolder)
 
@@ -206,10 +213,6 @@ func main() {
 				if r := recover(); r != nil {
 					err = fmt.Errorf("sync panic: %v", r)
 				}
-				syncMu.Lock()
-				syncRunning = false
-				syncFinished = time.Now()
-				syncMu.Unlock()
 				errCh <- err
 			}()
 			err = syncer.SyncFolder(client, cfg.LocalFolder, statePath, onDemand)
@@ -218,7 +221,7 @@ func main() {
 		select {
 		case err = <-errCh:
 		case <-time.After(syncTimeout):
-			fmt.Fprintf(os.Stderr, "sync timeout apos %s — aguardando sync em background; use Liberar sync travado se Explorer congelar\n", syncTimeout)
+			fmt.Fprintf(os.Stderr, "sync timeout apos %s — use Liberar sync travado\n", syncTimeout)
 			return fmt.Errorf("sync timeout apos %s", syncTimeout)
 		}
 
@@ -263,7 +266,7 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 		started := syncStarted
 		finished := syncFinished
 		syncMu.Unlock()
-		stuck := running && time.Since(started) > syncTimeout
+		stuck := running && time.Since(started) > 15*time.Second
 		serverOK := !running && client.Ping() == nil
 		if running {
 			serverOK = true
@@ -465,18 +468,19 @@ const j=await r.json();m.textContent=j.ok?'OK.':('Erro: '+j.error)}
 async function syncNow(){
 const m=document.getElementById('msg');const btn=document.querySelector('button');
 m.textContent='Sincronizando…';if(btn)btn.disabled=true;
-const tClick=Date.now();
+let watchStarted=0;
 try{
 const j=await post('/api/sync');
 if(!j.ok){m.textContent='Erro: '+(j.error||'falhou');return}
 for(let i=0;i<60;i++){
 await new Promise(r=>setTimeout(r,500));
 const s=await fetch('/api/status').then(r=>r.json());
-if(s.sync_finished_at>=tClick&&!s.sync_running){
-m.textContent='Sincronizacao concluida.';break}
-if(s.sync_stuck){m.textContent='Sync travado — use Liberar sync travado.';break}
-if(!s.sync_running&&s.sync_started_at<tClick){m.textContent='Sincronizacao concluida.';break}
-if(i===59)m.textContent='Demorou mais que 30s — veja o console do NetoDrive Sync.'}
+if(s.sync_running&&s.sync_started_at)watchStarted=Math.max(watchStarted,s.sync_started_at);
+if(s.sync_stuck){m.textContent='Sync travado — clique Liberar sync travado.';break}
+if(!s.sync_running){
+if(watchStarted===0||s.sync_finished_at>=watchStarted){
+m.textContent='Sincronizacao concluida.';break}}
+if(i===59)m.textContent='Demorou mais que 30s — veja o console.'}
 }catch(e){m.textContent=String(e)}
 finally{if(btn)btn.disabled=false;refreshServer()}}
 async function refreshServer(){

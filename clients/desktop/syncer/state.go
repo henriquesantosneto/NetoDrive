@@ -26,9 +26,10 @@ type SyncState struct {
 	IsRepoRoot   *bool                `json:"is_repo_root,omitempty"`
 	ChangeCursor int64                `json:"change_cursor"`
 	OnDemand     bool                 `json:"on_demand"`
-	Pinned       []string             `json:"pinned,omitempty"`
-	Entries      map[string]FileEntry `json:"entries,omitempty"`
-	Known        map[string]string    `json:"known,omitempty"` // legacy: path -> hash
+	Pinned           []string             `json:"pinned,omitempty"`
+	Entries          map[string]FileEntry `json:"entries,omitempty"`
+	Known            map[string]string    `json:"known,omitempty"` // legacy: path -> hash
+	LastManifestFP   string               `json:"last_manifest_fp,omitempty"`
 }
 
 func DefaultStatePath(configPath string) string {
