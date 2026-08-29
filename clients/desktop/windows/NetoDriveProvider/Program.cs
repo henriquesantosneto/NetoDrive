@@ -36,7 +36,7 @@ internal static class Program
                     return 0;
 
                 case "-register":
-                    SyncRootRegistrar.Register(cfg);
+                    SyncRootRegistrar.Register(cfg, cfgPath);
                     Console.WriteLine("Sync root registrado.");
                     return 0;
 

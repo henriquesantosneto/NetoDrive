@@ -1,3 +1,4 @@
+using Microsoft.Win32;
 using Windows.Security.Cryptography;
 using Windows.Storage;
 using Windows.Storage.Provider;
@@ -10,7 +11,7 @@ namespace NetoDriveProvider;
 /// </summary>
 internal static class SyncRootRegistrar
 {
-    internal static void Register(AppConfig cfg)
+    internal static void Register(AppConfig cfg, string cfgPath)
     {
         SyncRootCleanup.ValidatePath(cfg.LocalFolder);
         SyncRootCleanup.DeepUnregister(cfg.LocalFolder);
@@ -32,7 +33,10 @@ internal static class SyncRootRegistrar
 
         var syncRootId = Paths.SyncRootId;
         Console.WriteLine($"Registrando sync root: {syncRootId}");
-        Console.WriteLine($"Pasta: {cfg.LocalFolder}");
+        var rawJson = JsonConfigReader.ReadLocalFolderRawFromFile(cfgPath);
+        if (!string.IsNullOrWhiteSpace(rawJson))
+            Console.WriteLine($"local_folder (JSON): {rawJson}");
+        Console.WriteLine($"local_folder (Explorer): {cfg.LocalFolder}");
 
         var info = new StorageProviderSyncRootInfo
         {
@@ -55,7 +59,22 @@ internal static class SyncRootRegistrar
 
         StorageProviderSyncRootManager.Register(info);
         Thread.Sleep(1000);
+        EnsureRegistryUserSyncRootPath(syncRootId, cfg.LocalFolder);
         SyncRootStatus.ConfirmRegistration(cfg);
+    }
+
+    private static void EnsureRegistryUserSyncRootPath(string syncRootId, string localFolder)
+    {
+        const string basePath = @"Software\Microsoft\Windows\CurrentVersion\Explorer\SyncRootManager";
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(Path.Combine(basePath, syncRootId), true);
+            key?.SetValue("UserSyncRootPath", localFolder, RegistryValueKind.String);
+        }
+        catch
+        {
+            // WinRT Register ja deve gravar; isto e redundancia
+        }
     }
 
     internal static void Unregister(string localFolder)

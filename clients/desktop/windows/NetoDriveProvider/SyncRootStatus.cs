@@ -13,11 +13,26 @@ internal static class SyncRootStatus
     {
         var expected = Normalize(cfg.LocalFolder);
         var installDir = Normalize(InstallDir);
+        var rawJson = JsonConfigReader.ReadLocalFolderRawFromFile(cfgPath);
 
         Console.WriteLine($"Config: {cfgPath}");
-        Console.WriteLine($"local_folder (JSON): {cfg.LocalFolder}");
+        if (!string.IsNullOrWhiteSpace(rawJson))
+            Console.WriteLine($"local_folder (JSON): {rawJson}");
+        else
+            Console.WriteLine("local_folder (JSON): (nao definido — usa padrao)");
+        Console.WriteLine($"local_folder (usado pelo provider): {cfg.LocalFolder}");
         Console.WriteLine($"Pasta de instalacao: {installDir}");
         Console.WriteLine();
+
+        if (!string.IsNullOrWhiteSpace(rawJson))
+        {
+            var want = Normalize(LocalFolderResolver.Resolve(cfgPath, rawJson));
+            if (!want.Equals(expected, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("AVISO: valor resolvido difere do JSON; recompile o provider.");
+                expected = want;
+            }
+        }
 
         var roots = ListNetoDriveRoots();
         if (roots.Count == 0)

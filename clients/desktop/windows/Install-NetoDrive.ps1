@@ -152,8 +152,24 @@ if ($dotnet) {
   Write-Host "Instale .NET 8 SDK e rode Install-NetoDrive.ps1 novamente."
 }
 
+function Pin-LocalFolderQuickAccess {
+  param([string]$Folder)
+  if (-not (Test-Path -LiteralPath $Folder)) { return }
+  try {
+    $shell = New-Object -ComObject Shell.Application
+    $dir = $shell.Namespace($Folder)
+    if ($dir) {
+      $dir.Self.InvokeVerb("pintohome") | Out-Null
+      Write-Host "Acesso rapido do Explorer fixado em: $Folder"
+    }
+  } catch {
+    Write-Host "AVISO: nao foi possivel fixar Acesso rapido automaticamente." -ForegroundColor Yellow
+  }
+}
+
 $localFolder = Get-NetoDriveLocalFolder -CfgPath $cfg
 New-Item -ItemType Directory -Force -Path $localFolder | Out-Null
+Pin-LocalFolderQuickAccess -Folder $localFolder
 
 $desktop = [Environment]::GetFolderPath("Desktop")
 $w = New-Object -ComObject WScript.Shell

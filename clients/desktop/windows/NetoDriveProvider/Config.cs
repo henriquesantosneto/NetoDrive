@@ -1,25 +1,79 @@
 using System.Security.Principal;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace NetoDriveProvider;
 
 internal sealed class AppConfig
 {
+    [JsonPropertyName("server_url")]
     public string ServerURL { get; set; } = "";
+
+    [JsonPropertyName("token")]
     public string Token { get; set; } = "";
+
+    [JsonPropertyName("device_id")]
     public string DeviceID { get; set; } = "";
+
+    [JsonPropertyName("local_folder")]
     public string LocalFolder { get; set; } = "";
+
+    [JsonPropertyName("on_demand")]
     public bool OnDemand { get; set; } = true;
 
     public static AppConfig Load(string path)
     {
         var json = File.ReadAllText(path);
-        var cfg = JsonSerializer.Deserialize<AppConfig>(json, new JsonSerializerOptions
+        var cfg = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+
+        // Fallback: snake_case no JSON as vezes nao mapeia sem JsonPropertyName em builds antigos.
+        if (string.IsNullOrWhiteSpace(cfg.LocalFolder))
         {
-            PropertyNameCaseInsensitive = true,
-        }) ?? new AppConfig();
+            var raw = JsonConfigReader.ReadLocalFolderRaw(json);
+            if (!string.IsNullOrWhiteSpace(raw))
+                cfg.LocalFolder = raw;
+        }
+
         cfg.LocalFolder = LocalFolderResolver.Resolve(path, cfg.LocalFolder);
         return cfg;
+    }
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true,
+    };
+}
+
+internal static class JsonConfigReader
+{
+    internal static string? ReadLocalFolderRaw(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            foreach (var name in new[] { "local_folder", "LocalFolder", "localFolder" })
+            {
+                if (!doc.RootElement.TryGetProperty(name, out var el))
+                    continue;
+                var s = el.GetString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(s))
+                    return s;
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+        return null;
+    }
+
+    internal static string? ReadLocalFolderRawFromFile(string cfgPath)
+    {
+        if (!File.Exists(cfgPath))
+            return null;
+        return ReadLocalFolderRaw(File.ReadAllText(cfgPath));
     }
 }
 
