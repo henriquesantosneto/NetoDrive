@@ -10,6 +10,23 @@ import (
 func scanLocalFilesLight(localRoot string, known map[string]string) (map[string]string, error) {
 	local := indexMetaStore(localRoot)
 
+	// CFAPI sync root: never WalkDir/Stat/FileHash under placeholders (freezes Explorer).
+	if cfapiProviderActive() {
+		for rel, hash := range known {
+			if _, ok := local[rel]; ok {
+				continue
+			}
+			if hash != "" {
+				local[rel] = hash
+			}
+		}
+		rootNew, err := scanCFAPIRootOnly(localRoot, local)
+		for k, v := range rootNew {
+			local[k] = v
+		}
+		return local, err
+	}
+
 	for rel, oldHash := range known {
 		if _, ok := local[rel]; ok {
 			continue
@@ -94,4 +111,31 @@ func scanShallowNewFiles(localRoot string, existing map[string]string) (map[stri
 		return nil
 	})
 	return found, err
+}
+
+// scanCFAPIRootOnly lists only the sync-root directory (no recursion) to find new top-level files.
+func scanCFAPIRootOnly(localRoot string, existing map[string]string) (map[string]string, error) {
+	found := map[string]string{}
+	entries, err := os.ReadDir(localRoot)
+	if err != nil {
+		return found, err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		path := filepath.Join(localRoot, name)
+		if shouldSkipWalkEntry(localRoot, path, name, false) {
+			continue
+		}
+		rel := name
+		if _, ok := existing[rel]; ok {
+			continue
+		}
+		if meta, ok := readPlaceholderMetaForRel(localRoot, rel); ok {
+			found[rel] = meta.Hash
+		}
+	}
+	return found, nil
 }

@@ -6,7 +6,7 @@ import "time"
 
 func scanLocalFilesForSync(localRoot string, known map[string]string) (map[string]string, error) {
 	if providerExe() != "" {
-		return scanLocalFilesLight(localRoot, known)
+		return scanLocalFilesLightWithTimeout(localRoot, known, 30*time.Second)
 	}
 	return scanLocalFilesWithTimeout(localRoot, 2*time.Minute)
 }
