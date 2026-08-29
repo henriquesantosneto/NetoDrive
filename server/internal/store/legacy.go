@@ -151,13 +151,9 @@ func (s *Store) relocatePath(userID int64, oldPath, newPath string) error {
 				return err
 			}
 		} else if existing.MTime.After(f.MTime) {
-			_, err := s.SoftDelete(userID, oldPath)
-			return err
+			return s.RemoveActivePath(userID, oldPath)
 		} else {
-			if _, err := s.SoftDelete(userID, newPath); err != nil {
-				return err
-			}
-			if err := s.Purge(userID, newPath); err != nil {
+			if err := s.RemoveActivePath(userID, newPath); err != nil {
 				return err
 			}
 		}

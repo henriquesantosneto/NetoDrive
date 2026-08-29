@@ -41,6 +41,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/sync/changes", s.withAuth(s.handleChanges))
 	mux.HandleFunc("/api/sync/upload", s.withAuth(s.handleUpload))
 	mux.HandleFunc("/api/sync/rename", s.withAuth(s.handleSyncRename))
+	mux.HandleFunc("/api/sync/remove/", s.withAuth(s.handleSyncRemove))
 	mux.HandleFunc("/api/sync/download/", s.withAuth(s.handleDownload))
 	mux.HandleFunc("/api/open/", s.withAuth(s.handleOpen))
 	mux.HandleFunc("/api/gallery", s.withAuth(s.handleGallery))
@@ -407,6 +408,25 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, meta)
+}
+
+func (s *Server) handleSyncRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	c := claimsFrom(r)
+	p := strings.TrimPrefix(r.URL.Path, "/api/sync/remove/")
+	p = strings.Trim(path.Clean("/"+p), "/")
+	if p == "" || p == "." {
+		writeErr(w, http.StatusBadRequest, "invalid path")
+		return
+	}
+	if err := s.Store.RemoveActivePath(c.UserID, p); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"removed": true, "path": p})
 }
 
 func (s *Server) handleSyncRename(w http.ResponseWriter, r *http.Request) {

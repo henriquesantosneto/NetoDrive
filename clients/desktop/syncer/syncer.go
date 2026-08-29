@@ -181,6 +181,24 @@ func (c *Client) Delete(remotePath string) error {
 	return nil
 }
 
+// RemoveRemote permanently removes a remote path without placing it in trash.
+func (c *Client) RemoveRemote(remotePath string) error {
+	req, err := c.authReq(http.MethodDelete, "/api/sync/remove/"+escapePath(remotePath), nil)
+	if err != nil {
+		return err
+	}
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("remove failed: %s", string(b))
+	}
+	return nil
+}
+
 func (c *Client) authReq(method, path string, body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequest(method, c.BaseURL+path, body)
 	if err != nil {
