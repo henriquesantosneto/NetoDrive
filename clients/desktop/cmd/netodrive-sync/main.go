@@ -414,15 +414,6 @@ func defaultConfigPath() string {
 	return filepath.Join(home, ".config", "netodrive", "netodrive.json")
 }
 
-func looksLikeRepoRoot(dir string) bool {
-	for _, marker := range []string{".git", filepath.Join("server", "go.mod"), filepath.Join("clients", "desktop")} {
-		if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
-			return true
-		}
-	}
-	return false
-}
-
 func loadResolvedLocalFolder(cfgPath string) (string, error) {
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
