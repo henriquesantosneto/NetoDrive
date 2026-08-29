@@ -30,6 +30,8 @@ type Config struct {
 	OnDemand *bool `json:"on_demand,omitempty"`
 	// remote_prefix is ignored (legacy); all devices share the account root tree.
 	RemotePrefixLegacy string `json:"remote_prefix,omitempty"`
+	// IsRepoRoot: true when local_folder is the git clone (evita Stat sob CFAPI). Ex.: true
+	IsRepoRoot *bool `json:"is_repo_root,omitempty"`
 }
 
 var (
@@ -100,7 +102,9 @@ func main() {
 	}
 	cfg.LocalFolder = syncer.ResolveLocalFolder(*cfgPath, cfg.LocalFolder)
 	normalizeConfig(&cfg)
-	warnLocalFolderIssues(cfg.LocalFolder)
+	statePath := syncer.DefaultStatePath(*cfgPath)
+	syncer.PrepareRepoRootCache(cfg.LocalFolder, statePath, cfg.IsRepoRoot)
+	warnLocalFolderIssues(cfg.LocalFolder, cfg.IsRepoRoot)
 	if cfg.DeviceID == "" {
 		cfg.DeviceID = uuid.NewString()
 		if err := patchConfigFields(*cfgPath, map[string]any{"device_id": cfg.DeviceID}); err != nil {
@@ -135,8 +139,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "AVISO: servidor offline em %s (%v)\n", cfg.ServerURL, err)
 		fmt.Fprintf(os.Stderr, "  Sync falha ate o servidor subir. Edite server_url em %s\n", *cfgPath)
 	}
-
-	statePath := syncer.DefaultStatePath(*cfgPath)
 
 	if *pinPath != "" {
 		target := strings.Trim(strings.ReplaceAll(*pinPath, "\\", "/"), "/")
@@ -232,8 +234,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, "sync ok")
 		return nil
 	}
-
-	go run()
 
 	if *ui {
 		startControlPanel(cfg, *cfgPath, client, onDemand, run)
@@ -381,6 +381,10 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 	fmt.Printf("Painel NetoDrive: %s\n", addr)
 	_ = openURL(addr)
 
+	go func() {
+		time.Sleep(2 * time.Second)
+		_ = run()
+	}()
 	go func() {
 		t := time.NewTicker(time.Duration(cfg.IntervalSec) * time.Second)
 		defer t.Stop()
@@ -646,12 +650,17 @@ func suggestedAlternateSyncFolder(home, current string) string {
 	return filepath.Join(home, "NetoDriveSync")
 }
 
-func warnLocalFolderIssues(abs string) {
+func warnLocalFolderIssues(abs string, cfgIsRepo *bool) {
 	home, _ := os.UserHomeDir()
-	if syncer.IsLikelyRepoRoot(abs) {
+	isRepo := cfgIsRepo != nil && *cfgIsRepo
+	if !isRepo && !syncer.CfapiProviderInstalled() {
+		isRepo = syncer.IsLikelyRepoRoot(abs)
+	}
+	if isRepo {
 		fmt.Fprintf(os.Stderr, "Aviso: local_folder e o clone git (%s).\n", abs)
 		fmt.Fprintf(os.Stderr, "         Pastas clients/server/web nao serao enviadas ao servidor.\n")
 		fmt.Fprintf(os.Stderr, "         Recomendado: pasta so de dados, ex. %s\n", suggestedAlternateSyncFolder(home, abs))
+		fmt.Fprintf(os.Stderr, "         Com CFAPI ativo, adicione ao netodrive.json: \"is_repo_root\": true\n")
 	}
 	if runtime.GOOS == "windows" && syncer.IsUnderOneDrive(abs) {
 		fmt.Fprintf(os.Stderr, "Aviso: local_folder esta dentro do OneDrive (%s).\n", abs)

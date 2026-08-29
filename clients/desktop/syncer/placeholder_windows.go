@@ -58,6 +58,8 @@ func cfapiProviderActive() bool {
 	return providerExe() != ""
 }
 
+func CfapiProviderInstalled() bool { return cfapiProviderActive() }
+
 func writePlatformPlaceholder(localRoot, rel string, meta placeholderMeta) error {
 	if err := writePlaceholderMeta(localRoot, rel, meta); err != nil {
 		return err

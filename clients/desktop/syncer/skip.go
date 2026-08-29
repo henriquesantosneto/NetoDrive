@@ -3,6 +3,7 @@ package syncer
 import (
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // skipDirNames are never descended into during sync.
@@ -33,15 +34,17 @@ var repoTopSkipDirs = map[string]bool{
 var syncWalkLocalRoot string
 var syncWalkLocalRootIsRepo bool
 var repoRootCache = map[string]bool{}
+var syncFolderMu sync.Mutex
 
 func setSyncWalkContext(localRoot string, st *SyncState) {
 	syncWalkLocalRoot = localRoot
+	key := normalizeRootKey(localRoot)
 	if st != nil && st.IsRepoRoot != nil {
 		syncWalkLocalRootIsRepo = *st.IsRepoRoot
-		repoRootCache[localRoot] = *st.IsRepoRoot
+		repoRootCache[key] = *st.IsRepoRoot
 		return
 	}
-	if v, ok := repoRootCache[localRoot]; ok {
+	if v, ok := repoRootCache[key]; ok {
 		syncWalkLocalRootIsRepo = v
 		if st != nil && st.IsRepoRoot == nil {
 			b := v
@@ -49,9 +52,13 @@ func setSyncWalkContext(localRoot string, st *SyncState) {
 		}
 		return
 	}
-	// Stat the sync root once per process; repeat Stat under CFAPI freezes Explorer.
+	if cfapiProviderActive() {
+		syncWalkLocalRootIsRepo = false
+		repoRootCache[key] = false
+		return
+	}
 	v := IsLikelyRepoRoot(localRoot)
-	repoRootCache[localRoot] = v
+	repoRootCache[key] = v
 	syncWalkLocalRootIsRepo = v
 	if st != nil {
 		b := v

@@ -234,6 +234,11 @@ func FileHash(path string) (string, int64, error) {
 
 // SyncFolder mirrors localRoot with the account tree (placeholders when onDemand is true).
 func SyncFolder(c *Client, localRoot, statePath string, onDemand bool) error {
+	syncLog("sync: iniciando...")
+	if !syncFolderMu.TryLock() {
+		return fmt.Errorf("sync interno ja em andamento (aguarde o ciclo anterior)")
+	}
+	defer syncFolderMu.Unlock()
 	SetPlaceholderBulkSync(true)
 	defer SetPlaceholderBulkSync(false)
 	return syncFolder(c, localRoot, statePath, onDemand, "")
