@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
+using Vanara.InteropServices;
 using Vanara.PInvoke;
 using static Vanara.PInvoke.CldApi;
 
@@ -91,12 +92,15 @@ internal sealed class ProviderHost : IDisposable
             if (read <= 0)
                 break;
 
+            var chunk = buffer.AsSpan(0, read).ToArray();
+            using var bufMem = new SafeCoTaskMemHandle(chunk);
+
             var transfer = new CF_OPERATION_PARAMETERS.TRANSFERDATA
             {
-                CompletionStatus = HRESULT.S_OK,
-                Buffer = buffer.AsSpan(0, read).ToArray(),
+                CompletionStatus = NTStatus.STATUS_SUCCESS,
+                Buffer = bufMem.DangerousGetHandle(),
                 Offset = offset + done,
-                Length = (uint)read,
+                Length = read,
             };
 
             var opParams = CF_OPERATION_PARAMETERS.Create(transfer);

@@ -72,7 +72,7 @@ internal static class PlaceholderManager
         };
 
         uint done = 0;
-        var hr = CfCreatePlaceholders(parent, new[] { info }, 1, CF_CREATE_FLAGS.CF_CREATE_FLAG_NONE, ref done);
+        var hr = CfCreatePlaceholders(parent, new[] { info }, 1, CF_CREATE_FLAGS.CF_CREATE_FLAG_NONE, out done);
         if (hr.Failed)
             throw new InvalidOperationException($"CfCreatePlaceholders {rel}: {hr}");
         if (info.Result.Failed)
