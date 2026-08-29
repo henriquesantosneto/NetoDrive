@@ -7,7 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+const providerCommandWaitTimeout = 90 * time.Second
 
 type providerCommandEntry struct {
 	Op  string `json:"op"`
@@ -33,9 +36,6 @@ func enqueueProviderCommand(localRoot, op, rel string) error {
 	if op == "" || rel == "" {
 		return nil
 	}
-	if isProviderCommandQueued(localRoot, op, rel) {
-		return nil
-	}
 	path := providerCommandsPath(localRoot)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -57,18 +57,11 @@ func enqueueProviderCommand(localRoot, op, rel string) error {
 func isProviderCommandQueued(localRoot, op, rel string) bool {
 	op = strings.ToLower(strings.TrimSpace(op))
 	rel = filepath.ToSlash(strings.Trim(rel, "/"))
-	path := providerCommandsPath(localRoot)
-	f, err := os.Open(path)
+	lines, err := readProviderCommandLines(localRoot)
 	if err != nil {
 		return false
 	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
-			continue
-		}
+	for _, line := range lines {
 		var entry providerCommandEntry
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			continue
@@ -80,9 +73,55 @@ func isProviderCommandQueued(localRoot, op, rel string) bool {
 	return false
 }
 
+func readProviderCommandLines(localRoot string) ([]string, error) {
+	path := providerCommandsPath(localRoot)
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+	var lines []string
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines, sc.Err()
+}
+
+func waitForProviderCommand(localRoot, op, rel string, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = providerCommandWaitTimeout
+	}
+	op = strings.ToLower(strings.TrimSpace(op))
+	rel = filepath.ToSlash(strings.Trim(rel, "/"))
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !isProviderCommandQueued(localRoot, op, rel) {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf(
+		"provider nao concluiu %s %s (inicie NetoDrive Sync ou veja %%AppData%%\\NetoDrive\\logs\\provider.log)",
+		op, rel,
+	)
+}
+
 func runProviderOp(localRoot, op, rel string) error {
 	if providerExe() == "" {
 		return fmt.Errorf("netodrive-provider nao instalado")
 	}
-	return enqueueProviderCommand(localRoot, op, rel)
+	if err := ensureProviderProcess(localRoot); err != nil {
+		return err
+	}
+	if err := enqueueProviderCommand(localRoot, op, rel); err != nil {
+		return err
+	}
+	return waitForProviderCommand(localRoot, op, rel, providerCommandWaitTimeout)
 }

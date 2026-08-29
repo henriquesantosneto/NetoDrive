@@ -180,6 +180,7 @@ func PinLocalPath(c *Client, localRoot, statePath, target string, onDemand bool)
 		return err
 	}
 	matched := 0
+	var firstErr error
 	for _, e := range man.Files {
 		if e.IsDir {
 			continue
@@ -190,8 +191,17 @@ func PinLocalPath(c *Client, localRoot, statePath, target string, onDemand bool)
 		}
 		matched++
 		if cfapiProviderActive() {
+			meta := placeholderMeta{Hash: e.Hash, Size: e.Size}
+			if err := ensureCFAPIPlaceholder(localRoot, rel, meta); err != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("placeholder %s: %w", rel, err)
+				}
+				continue
+			}
 			if err := providerPin(localRoot, rel); err != nil {
-				fmt.Fprintf(os.Stderr, "aviso: fixar %s: %v\n", rel, err)
+				if firstErr == nil {
+					firstErr = fmt.Errorf("fixar %s: %w", rel, err)
+				}
 				continue
 			}
 			if st.Entries == nil {
@@ -199,7 +209,7 @@ func PinLocalPath(c *Client, localRoot, statePath, target string, onDemand bool)
 			}
 			st.Entries[rel] = FileEntry{Hash: e.Hash, Size: e.Size, Availability: AvPinned}
 			st.Known[rel] = e.Hash
-			_ = writeHydratedMeta(localRoot, rel, placeholderMeta{Hash: e.Hash, Size: e.Size})
+			_ = writeHydratedMeta(localRoot, rel, meta)
 			continue
 		}
 		if err := HydratePath(c, localRoot, statePath, rel); err != nil {
@@ -210,7 +220,10 @@ func PinLocalPath(c *Client, localRoot, statePath, target string, onDemand bool)
 		return fmt.Errorf("nenhum arquivo remoto encontrado para: %s", target)
 	}
 	if cfapiProviderActive() {
-		return SaveStateCached(statePath, st)
+		if err := SaveStateCached(statePath, st); err != nil {
+			return err
+		}
+		return firstErr
 	}
 	return SyncFolder(c, localRoot, statePath, onDemand)
 }
@@ -246,14 +259,20 @@ func UnpinLocalPath(c *Client, localRoot, statePath, target string, onDemand boo
 		}
 		matched++
 		if cfapiProviderActive() {
-			if err := providerDehydrate(localRoot, rel); err != nil {
-				fmt.Fprintf(os.Stderr, "aviso: liberar espaco %s: %v\n", rel, err)
+			meta := placeholderMeta{Hash: e.Hash, Size: e.Size}
+			if err := ensureCFAPIPlaceholder(localRoot, rel, meta); err != nil {
 				if firstErr == nil {
-					firstErr = err
+					firstErr = fmt.Errorf("placeholder %s: %w", rel, err)
 				}
 				continue
 			}
-			if err := writeCloudOnlyMeta(localRoot, rel, placeholderMeta{Hash: e.Hash, Size: e.Size}); err != nil {
+			if err := providerDehydrate(localRoot, rel); err != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("liberar espaco %s: %w", rel, err)
+				}
+				continue
+			}
+			if err := writeCloudOnlyMeta(localRoot, rel, meta); err != nil {
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -338,6 +357,20 @@ func HydratePath(c *Client, localRoot, statePath, rel string) error {
 
 	localPath := placeholderPath(localRoot, rel)
 	if cfapiProviderActive() {
+		meta := placeholderMeta{Hash: "", Size: 0}
+		for _, e := range man.Files {
+			nrel, _ := localRelFromRemote(e.Path)
+			if nrel == rel {
+				meta.Hash = e.Hash
+				meta.Size = e.Size
+				break
+			}
+		}
+		if meta.Hash != "" {
+			if err := ensureCFAPIPlaceholder(localRoot, rel, meta); err != nil {
+				return err
+			}
+		}
 		if err := providerHydrate(localRoot, rel); err != nil {
 			return err
 		}

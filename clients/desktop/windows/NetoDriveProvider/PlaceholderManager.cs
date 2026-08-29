@@ -118,6 +118,7 @@ internal static class PlaceholderManager
 
     internal static void Pin(AppConfig cfg, string rel)
     {
+        EnsurePlaceholderFile(cfg, rel);
         var full = FullPath(cfg, rel);
         if (!File.Exists(full))
             throw new FileNotFoundException($"arquivo nao encontrado: {rel}", full);
@@ -130,6 +131,7 @@ internal static class PlaceholderManager
 
     internal static void Dehydrate(AppConfig cfg, string rel)
     {
+        EnsurePlaceholderFile(cfg, rel);
         var full = FullPath(cfg, rel);
         if (!File.Exists(full))
             return;
@@ -141,6 +143,7 @@ internal static class PlaceholderManager
 
     internal static void Hydrate(AppConfig cfg, string rel)
     {
+        EnsurePlaceholderFile(cfg, rel);
         var full = FullPath(cfg, rel);
         if (!File.Exists(full))
             throw new FileNotFoundException($"arquivo nao encontrado: {rel}", full);
@@ -154,6 +157,20 @@ internal static class PlaceholderManager
     {
         rel = rel.Replace('\\', '/').Trim('/');
         return Path.Combine(cfg.LocalFolder, rel.Replace('/', Path.DirectorySeparatorChar));
+    }
+
+    private static void EnsurePlaceholderFile(AppConfig cfg, string rel)
+    {
+        rel = rel.Replace('\\', '/').Trim('/');
+        if (string.IsNullOrEmpty(rel) || Exists(cfg, rel))
+            return;
+        foreach (var entry in PlaceholderCatalog.AllKnown(cfg))
+        {
+            if (!string.Equals(entry.Rel, rel, StringComparison.OrdinalIgnoreCase))
+                continue;
+            Create(cfg, rel, entry.Hash, entry.Size);
+            return;
+        }
     }
 
     private static void TryDeletePath(string path)
