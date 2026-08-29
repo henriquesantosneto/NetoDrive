@@ -1,5 +1,5 @@
 @echo off
-REM NetoDrive Sync para Windows — painel estilo OneDrive + sync em segundo plano
+REM NetoDrive Sync for Windows - OneDrive-style panel + background sync
 setlocal
 cd /d "%~dp0"
 

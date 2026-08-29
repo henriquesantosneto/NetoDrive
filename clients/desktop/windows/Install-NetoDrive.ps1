@@ -1,5 +1,5 @@
-# Instala o cliente NetoDrive no Windows (sync + atalho).
-# Execute no PowerShell:  .\Install-NetoDrive.ps1
+# Install NetoDrive Windows client (sync + desktop shortcut).
+# Run in PowerShell:  .\Install-NetoDrive.ps1
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Repo = Resolve-Path (Join-Path $Root "..\..\..")
@@ -13,8 +13,12 @@ $exeSrc = Join-Path $Repo "dist\netodrive-sync.exe"
 if (-not (Test-Path $exeSrc)) {
   Write-Host "Compilando netodrive-sync.exe ..."
   Push-Location (Join-Path $Repo "clients\desktop")
-  $env:GOOS = "windows"; $env:GOARCH = "amd64"
+  $env:GOOS = "windows"
+  $env:GOARCH = "amd64"
   go build -o $exeSrc .\cmd\netodrive-sync
+  if ($LASTEXITCODE -ne 0) {
+    throw "Falha ao compilar. Instale o Go (https://go.dev/dl/) ou copie dist\netodrive-sync.exe para esta pasta."
+  }
   Pop-Location
 }
 
@@ -24,7 +28,8 @@ Copy-Item (Join-Path $Root "Start-NetoDrive.bat") (Join-Path $InstallDir "Start-
 $cfg = Join-Path $ConfigDir "netodrive.json"
 if (-not (Test-Path $cfg)) {
   & (Join-Path $InstallDir "netodrive-sync.exe") -init -config $cfg
-  Write-Host "Config criada em $cfg — ajuste server_url para o IP do servidor."
+  Write-Host "Config criada em $cfg"
+  Write-Host "Edite server_url para o IP do servidor Linux."
 }
 
 $desktop = [Environment]::GetFolderPath("Desktop")
