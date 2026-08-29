@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -48,7 +49,23 @@ func NewClient(baseURL, token, deviceID string) *Client {
 		BaseURL:  strings.TrimRight(baseURL, "/"),
 		Token:    token,
 		DeviceID: deviceID,
-		HTTP:     &http.Client{Timeout: 0},
+		HTTP:     newSyncHTTPClient(),
+	}
+}
+
+func newSyncHTTPClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	return &http.Client{
+		Timeout: 10 * time.Minute,
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           dialer.DialContext,
+			ResponseHeaderTimeout: 2 * time.Minute,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
 	}
 }
 
@@ -309,7 +326,8 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	for _, rel := range plan.deleteLocal {
 		fmt.Printf("× local %s (removido na web)\n", rel)
 		if err := deleteLocalFile(localRoot, rel); err != nil {
-			return fmt.Errorf("delete local %s: %w", rel, err)
+			fmt.Fprintf(os.Stderr, "aviso: nao foi possivel remover %s: %v\n", rel, err)
+			continue
 		}
 		delete(local, rel)
 	}
@@ -334,11 +352,13 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 			continue
 		}
 		if IsPlaceholderFile(localPath) {
-			if meta, ok := readPlaceholderMetaForPath(localRoot, localPath, rel); ok {
-				if re.Hash == meta.Hash {
-					continue
+			if ok {
+				fmt.Printf("☁ atualiza placeholder %s\n", rel)
+				if err := writePlaceholder(localRoot, rel, placeholderMeta{Hash: re.Hash, Size: re.Size}); err != nil {
+					fmt.Fprintf(os.Stderr, "aviso: placeholder %s: %v\n", rel, err)
 				}
 			}
+			continue
 		}
 		remotePath := rel
 		if remotePrefix != "" {

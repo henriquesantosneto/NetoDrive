@@ -47,7 +47,8 @@ func (c *Client) FetchChanges(since int64) (*ChangesResponse, error) {
 }
 
 func applyRemoteChanges(c *Client, localRoot string, cursor int64) (int64, error) {
-	for {
+	const maxRounds = 100
+	for round := 0; round < maxRounds; round++ {
 		resp, err := c.FetchChanges(cursor)
 		if err != nil {
 			return cursor, err
@@ -77,6 +78,7 @@ func applyRemoteChanges(c *Client, localRoot string, cursor int64) (int64, error
 		}
 		cursor = resp.Cursor
 	}
+	return cursor, fmt.Errorf("change feed exceeded %d rounds; tente novamente", maxRounds)
 }
 
 func deleteLocalFile(localRoot, rel string) error {
@@ -180,6 +182,9 @@ func scanLocalFiles(localRoot string) (map[string]string, error) {
 		var hash string
 		if meta, ok := readPlaceholderMetaForPath(localRoot, path, rel); ok {
 			hash = meta.Hash
+		} else if isPlatformPlaceholder(path) {
+			// Cloud placeholder without sidecar — do not read file (can hang hydrating offline).
+			return nil
 		} else {
 			hash, _, err = FileHash(path)
 			if err != nil {

@@ -3,12 +3,14 @@
 package syncer
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func init() {
@@ -64,7 +66,9 @@ func writePlatformPlaceholder(localRoot, rel string, meta placeholderMeta) error
 		if cfg != "" {
 			args = append(args, "-config", cfg)
 		}
-		cmd := exec.Command(exe, args...)
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, exe, args...)
 		if out, err := cmd.CombinedOutput(); err == nil {
 			_ = os.Remove(placeholderDiskPath(localRoot, rel))
 			_ = os.Remove(placeholderPath(localRoot, rel))
@@ -96,7 +100,9 @@ func writePlatformPlaceholder(localRoot, rel string, meta placeholderMeta) error
 		args,
 		filepath.Dir(lnk),
 	)
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("create shortcut %s: %w (%s)", lnk, err, strings.TrimSpace(string(out)))
 	}
@@ -204,7 +210,9 @@ func removePlatformPlaceholder(localRoot, rel string) {
 func deleteLocalFilePlatform(localRoot, rel string) error {
 	if exe := providerExe(); exe != "" {
 		cfg := defaultConfigForProvider()
-		cmd := exec.Command(exe, "-remove", filepath.ToSlash(rel), "-config", cfg)
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, exe, "-remove", filepath.ToSlash(rel), "-config", cfg)
 		_ = cmd.Run()
 	}
 	return nil

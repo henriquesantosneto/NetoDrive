@@ -168,7 +168,14 @@ func main() {
 	run := func() error {
 		fmt.Printf("[%s] syncing %s ↔ arvore da conta (raiz)\n", time.Now().Format(time.RFC3339), cfg.LocalFolder)
 		if err := syncer.SyncFolder(client, cfg.LocalFolder, statePath, onDemand); err != nil {
-			fmt.Fprintf(os.Stderr, "sync error: %v\n", err)
+			msg := err.Error()
+			if strings.Contains(msg, "connection refused") || strings.Contains(msg, "no such host") ||
+				strings.Contains(msg, "timeout") || strings.Contains(msg, "context deadline exceeded") {
+				fmt.Fprintf(os.Stderr, "sync error: servidor inacessivel (%s): %v\n", cfg.ServerURL, err)
+				fmt.Fprintf(os.Stderr, "  Confira server_url em %s e se o servidor NetoDrive esta online.\n", *cfgPath)
+			} else {
+				fmt.Fprintf(os.Stderr, "sync error: %v\n", err)
+			}
 			return err
 		}
 		fmt.Println("sync ok")
