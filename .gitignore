@@ -2,7 +2,7 @@
 data/
 **/data/
 dist/
-web/dist/
+/web/dist/
 web/node_modules/
 web/*.tsbuildinfo
 **/.gradle/
@@ -16,12 +16,7 @@ server/data/
 clients/desktop/sync/
 clients/desktop/netodrive.json
 
-# Ignore most binaries, but keep the Windows client exe shipped with the installer
+# Ignore most binaries, but keep Windows packaged binaries
 *.exe
 !clients/desktop/windows/netodrive-sync.exe
 !clients/desktop/windows/netodrive-server.exe
-!clients/desktop/windows/web/
-
-!clients/desktop/windows/web/
-!clients/desktop/windows/web/dist/
-!clients/desktop/windows/web/dist/**
