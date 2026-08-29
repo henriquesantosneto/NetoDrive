@@ -301,7 +301,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	}
 
 	fmt.Println("sync: escaneando pasta local...")
-	local, err := scanLocalFilesWithTimeout(localRoot, 2*time.Minute)
+	local, err := scanLocalFilesForSync(localRoot, st.Known)
 	if err != nil {
 		return err
 	}
@@ -429,7 +429,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	removeEmptyLegacyDirs(localRoot)
 
 	fmt.Println("sync: reindexando pasta local...")
-	local, err = scanLocalFilesWithTimeout(localRoot, 2*time.Minute)
+	local, err = scanLocalFilesForSync(localRoot, st.Known)
 	if err != nil {
 		return err
 	}
