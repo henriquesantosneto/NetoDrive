@@ -1,0 +1,18 @@
+services:
+  netodrive:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      NETODRIVE_ADDR: ":8080"
+      NETODRIVE_DATA: /data
+      NETODRIVE_DB: /data/netodrive.db
+      NETODRIVE_JWT_SECRET: change-me-netodrive-secret
+      NETODRIVE_ADMIN_USER: admin
+      NETODRIVE_ADMIN_PASS: admin123
+    volumes:
+      - netodrive-data:/data
+    restart: unless-stopped
+
+volumes:
+  netodrive-data:

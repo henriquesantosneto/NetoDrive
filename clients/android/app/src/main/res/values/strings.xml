@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">NetoDrive</string>
+    <string name="login">Entrar</string>
+    <string name="server_url">URL do servidor</string>
+    <string name="username">Usuário</string>
+    <string name="password">Senha</string>
+    <string name="gallery_sync">Sincronizar galeria</string>
+    <string name="cache_mode">Modo cache (baixa sob demanda)</string>
+    <string name="open_remote">Abrir remoto</string>
+    <string name="browse">Arquivos</string>
+    <string name="cache_budget">Orçamento de cache (MB)</string>
+</resources>

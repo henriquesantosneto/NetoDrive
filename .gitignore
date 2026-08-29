@@ -1,0 +1,17 @@
+# Ignore
+data/
+**/data/
+dist/
+web/dist/
+web/node_modules/
+**/.gradle/
+**/build/
+**/*.exe
+**/*.db
+**/netodrive.json
+.idea/
+*.iml
+.DS_Store
+server/data/
+clients/desktop/sync/
+clients/desktop/netodrive.json
