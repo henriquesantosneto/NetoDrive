@@ -6,9 +6,12 @@ mkdir -p "$ROOT/dist"
 (cd "$ROOT/server" && go build -o "$ROOT/dist/netodrive" ./cmd/netodrive)
 (cd "$ROOT/clients/desktop" && go build -o "$ROOT/dist/netodrive-sync" ./cmd/netodrive-sync)
 (cd "$ROOT/clients/desktop" && GOOS=windows GOARCH=amd64 go build -o "$ROOT/dist/netodrive-sync.exe" ./cmd/netodrive-sync)
+cp "$ROOT/clients/desktop/windows/Start-NetoDrive.bat" "$ROOT/dist/"
+cp "$ROOT/clients/desktop/windows/Install-NetoDrive.ps1" "$ROOT/dist/"
 
 if command -v npm >/dev/null; then
-  (cd "$ROOT/web" && npm install && npm run build)
+  (cd "$ROOT/web" && npm ci && npm run build)
 fi
 
 echo "Binaries in $ROOT/dist"
+ls -la "$ROOT/dist"

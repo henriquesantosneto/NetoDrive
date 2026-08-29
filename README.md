@@ -93,4 +93,16 @@ App com navegação inferior estilo OneDrive:
 ./scripts/e2e.sh
 ```
 
+## API (resumo)
+
+| Método | Rota | Uso |
+|---|---|---|
+| POST | `/api/auth/login` | JWT |
+| GET | `/api/files?path=` | Listar |
+| PUT | `/api/sync/upload` | Upload |
+| GET | `/api/sync/download/...` | Download |
+| GET | `/api/open/...` | Abrir/stream remoto (Range) |
+| GET | `/api/gallery` | Galeria |
+| PUT | `/api/gallery/sync` | Upload da galeria Android |
+
 Docker (`docker compose`) é opcional e **não** é o caminho principal — use o serviço systemd.
