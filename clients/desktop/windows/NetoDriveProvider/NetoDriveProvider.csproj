@@ -10,6 +10,7 @@
     <UseWindowsForms>false</UseWindowsForms>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Vanara.Core" Version="4.0.4" />
     <PackageReference Include="Vanara.PInvoke.CldApi" Version="4.0.4" />
     <PackageReference Include="Vanara.PInvoke.Kernel32" Version="4.0.4" />
   </ItemGroup>

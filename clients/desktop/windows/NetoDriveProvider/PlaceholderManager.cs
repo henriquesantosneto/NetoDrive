@@ -1,8 +1,9 @@
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using Vanara.InteropServices;
 using Vanara.PInvoke;
 using static Vanara.PInvoke.CldApi;
+using static Vanara.PInvoke.Kernel32;
 
 namespace NetoDriveProvider;
 
@@ -40,51 +41,41 @@ internal static class PlaceholderManager
     internal static void Create(AppConfig cfg, string rel, string hash, long size)
     {
         rel = rel.Replace('\\', '/').Trim('/');
-        var baseDir = cfg.LocalFolder;
-        var full = Path.Combine(baseDir, rel.Replace('/', Path.DirectorySeparatorChar));
-        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        var full = Path.Combine(cfg.LocalFolder, rel.Replace('/', Path.DirectorySeparatorChar));
+        var parent = Path.GetDirectoryName(full)!;
+        Directory.CreateDirectory(parent);
+
+        // Remove legacy placeholder (.lnk, magic file, or plain file).
+        var lnk = full + ".lnk";
+        if (File.Exists(lnk))
+            File.Delete(lnk);
+        if (File.Exists(full))
+            File.Delete(full);
 
         var identity = PlaceholderIdentity.Encode(rel, hash, size);
+        using var idMem = new SafeCoTaskMemHandle(identity);
+
         var info = new CF_PLACEHOLDER_CREATE_INFO
         {
             RelativeFileName = Path.GetFileName(full),
             FsMetadata = new CF_FS_METADATA
             {
                 FileSize = size,
-                BasicInfo = new Vanara.PInvoke.Kernel32.FILE_BASIC_INFO
+                BasicInfo = new FILE_BASIC_INFO
                 {
-                    FileAttributes = (uint)FileAttributes.Archive,
+                    FileAttributes = FileFlagsAndAttributes.FILE_ATTRIBUTE_ARCHIVE,
                 },
             },
-            FileIdentity = identity,
+            FileIdentity = idMem.DangerousGetHandle(),
             FileIdentityLength = (uint)identity.Length,
             Flags = CF_PLACEHOLDER_CREATE_FLAGS.CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC,
         };
 
-        var parent = Path.GetDirectoryName(full)!;
-        var processed = 0u;
-        var hr = CfCreatePlaceholders(parent, new[] { info }, 1,
-            CF_CREATE_FLAGS.CF_CREATE_FLAG_NONE, ref processed);
+        uint done = 0;
+        var hr = CfCreatePlaceholders(parent, new[] { info }, 1, CF_CREATE_FLAGS.CF_CREATE_FLAG_NONE, ref done);
         if (hr.Failed)
             throw new InvalidOperationException($"CfCreatePlaceholders {rel}: {hr}");
-
-        // Remove legacy .lnk / magic placeholder if present
-        var lnk = full + ".lnk";
-        if (File.Exists(lnk)) File.Delete(lnk);
-        if (File.Exists(full) && !IsCloudPlaceholder(full))
-        {
-            // magic placeholder — replace
-            File.Delete(full);
-            hr = CfCreatePlaceholders(parent, new[] { info }, 1,
-                CF_CREATE_FLAGS.CF_CREATE_FLAG_NONE, ref processed);
-            if (hr.Failed)
-                throw new InvalidOperationException($"CfCreatePlaceholders retry {rel}: {hr}");
-        }
-    }
-
-    internal static bool IsCloudPlaceholder(string path)
-    {
-        var hr = CfGetPlaceholderStateFromPath(path, out var state);
-        return hr.Succeeded && state.HasFlag(CF_PLACEHOLDER_STATE.CF_PLACEHOLDER_STATE_PLACEHOLDER);
+        if (info.Result.Failed)
+            throw new InvalidOperationException($"CfCreatePlaceholders {rel}: {info.Result}");
     }
 }

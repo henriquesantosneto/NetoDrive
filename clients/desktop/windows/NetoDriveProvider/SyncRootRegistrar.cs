@@ -1,6 +1,9 @@
 using System.Runtime.InteropServices;
 using Vanara.PInvoke;
+using Windows.Security.Cryptography;
+using Windows.Storage;
 using Windows.Storage.Provider;
+using Windows.Storage.Streams;
 using static Vanara.PInvoke.CldApi;
 
 namespace NetoDriveProvider;
@@ -14,20 +17,25 @@ internal static class SyncRootRegistrar
     {
         Directory.CreateDirectory(cfg.LocalFolder);
 
+        var folder = StorageFolder.GetFolderFromPathAsync(cfg.LocalFolder).AsTask().GetAwaiter().GetResult();
+        var icon = Path.Combine(AppContext.BaseDirectory, "netodrive-sync.exe");
+        if (!File.Exists(icon))
+            icon = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetoDrive", "netodrive-sync.exe");
+
         var info = new StorageProviderSyncRootInfo
         {
             Id = Paths.SyncRootId,
             ProviderId = Paths.ProviderId,
-            Path = cfg.LocalFolder,
+            Path = folder,
             DisplayNameResource = "NetoDrive",
-            IconResource = Path.Combine(AppContext.BaseDirectory, "netodrive-sync.exe"),
+            IconResource = icon,
             AllowPinning = true,
             ShowSiblingsAsGroup = false,
             HydrationPolicy = StorageProviderHydrationPolicy.Full,
             PopulationPolicy = StorageProviderPopulationPolicy.Full,
-            InSyncPolicy = StorageProviderInSyncPolicy.FileCreationTime | StorageProviderInSyncPolicy.FileWriteTime,
+            InSyncPolicy = StorageProviderInSyncPolicy.FileCreationTime | StorageProviderInSyncPolicy.FileLastWriteTime,
             Version = "1.0",
-            Context = Windows.Security.Cryptography.CryptographicBuffer.CreateFromString("NetoDrive"),
+            Context = CryptographicBuffer.ConvertStringToBinary("NetoDrive", BinaryStringEncoding.Utf8),
         };
 
         StorageProviderSyncRootManager.Register(info);
@@ -55,7 +63,6 @@ internal static class SyncRootRegistrar
             },
             InSync = CF_INSYNC_POLICY.CF_INSYNC_POLICY_NONE,
             HardLink = CF_HARDLINK_POLICY.CF_HARDLINK_POLICY_NONE,
-            PlaceholderManagement = CF_PLACEHOLDER_MANAGEMENT_POLICY.CF_PLACEHOLDER_MANAGEMENT_POLICY_DEFAULT,
         };
 
         var hr = CfRegisterSyncRoot(cfg.LocalFolder, reg, pol, CF_REGISTER_FLAGS.CF_REGISTER_FLAG_NONE);
