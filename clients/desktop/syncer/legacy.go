@@ -40,6 +40,9 @@ func localRelFromLocal(rel string) string {
 }
 
 func removeEmptyLegacyDirs(localRoot string) {
+	if cfapiProviderActive() {
+		return
+	}
 	for _, prefix := range legacyDevicePrefixes {
 		dir := filepath.Join(localRoot, prefix)
 		entries, err := os.ReadDir(dir)

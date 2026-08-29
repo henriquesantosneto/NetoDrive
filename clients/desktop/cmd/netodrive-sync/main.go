@@ -36,6 +36,7 @@ var (
 	syncMu       sync.Mutex
 	syncRunning  bool
 	syncStarted  time.Time
+	syncFinished time.Time
 )
 
 const syncTimeout = 3 * time.Minute
@@ -197,19 +198,20 @@ func main() {
 		fmt.Fprintf(os.Stderr, "[%s] syncing %s ↔ arvore da conta (raiz)\n", time.Now().Format(time.RFC3339), cfg.LocalFolder)
 
 		errCh := make(chan error, 1)
-	go func() {
-		var err error
-		defer func() {
-			if r := recover(); r != nil {
-				err = fmt.Errorf("sync panic: %v", r)
-			}
-			syncMu.Lock()
-			syncRunning = false
-			syncMu.Unlock()
-			errCh <- err
+		go func() {
+			var err error
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("sync panic: %v", r)
+				}
+				syncMu.Lock()
+				syncRunning = false
+				syncFinished = time.Now()
+				syncMu.Unlock()
+				errCh <- err
+			}()
+			err = syncer.SyncFolder(client, cfg.LocalFolder, statePath, onDemand)
 		}()
-		err = syncer.SyncFolder(client, cfg.LocalFolder, statePath, onDemand)
-	}()
 		var err error
 		select {
 		case err = <-errCh:
@@ -259,6 +261,7 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 		syncMu.Lock()
 		running := syncRunning
 		started := syncStarted
+		finished := syncFinished
 		syncMu.Unlock()
 		stuck := running && time.Since(started) > syncTimeout
 		serverOK := !running && client.Ping() == nil
@@ -266,15 +269,17 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 			serverOK = true
 		}
 		writeJSON(w, map[string]any{
-			"server_url":    cfg.ServerURL,
-			"local_folder":  cfg.LocalFolder,
-			"interval_sec":  cfg.IntervalSec,
-			"on_demand":     onDemand,
-			"web_url":       cfg.ServerURL,
-			"remote_tree":   "arvore da conta (raiz)",
-			"server_online": serverOK,
-			"sync_running":  running,
-			"sync_stuck":    stuck,
+			"server_url":         cfg.ServerURL,
+			"local_folder":       cfg.LocalFolder,
+			"interval_sec":       cfg.IntervalSec,
+			"on_demand":          onDemand,
+			"web_url":            cfg.ServerURL,
+			"remote_tree":        "arvore da conta (raiz)",
+			"server_online":      serverOK,
+			"sync_running":       running,
+			"sync_stuck":         stuck,
+			"sync_finished_at":   finished.UnixMilli(),
+			"sync_started_at":    started.UnixMilli(),
 		})
 	})
 	mux.HandleFunc("/api/sync-reset", func(w http.ResponseWriter, r *http.Request) {
@@ -456,16 +461,18 @@ const j=await r.json();m.textContent=j.ok?'OK.':('Erro: '+j.error)}
 async function syncNow(){
 const m=document.getElementById('msg');const btn=document.querySelector('button');
 m.textContent='Sincronizando…';if(btn)btn.disabled=true;
+const tClick=Date.now();
 try{
 const j=await post('/api/sync');
 if(!j.ok){m.textContent='Erro: '+(j.error||'falhou');return}
-for(let i=0;i<90;i++){
-await new Promise(r=>setTimeout(r,1000));
+for(let i=0;i<60;i++){
+await new Promise(r=>setTimeout(r,500));
 const s=await fetch('/api/status').then(r=>r.json());
-if(!s.sync_running){
-m.textContent=s.sync_stuck?'Sync demorou demais — veja o console ou use Liberar sync.':'Sincronizacao concluida.';
-break}
-if(i===89)m.textContent='Ainda sincronizando (90s) — veja o console do NetoDrive Sync.'}
+if(s.sync_finished_at>=tClick&&!s.sync_running){
+m.textContent='Sincronizacao concluida.';break}
+if(s.sync_stuck){m.textContent='Sync travado — use Liberar sync travado.';break}
+if(!s.sync_running&&s.sync_started_at<tClick){m.textContent='Sincronizacao concluida.';break}
+if(i===59)m.textContent='Demorou mais que 30s — veja o console do NetoDrive Sync.'}
 }catch(e){m.textContent=String(e)}
 finally{if(btn)btn.disabled=false;refreshServer()}}
 async function refreshServer(){

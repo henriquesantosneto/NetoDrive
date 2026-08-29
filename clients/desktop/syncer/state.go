@@ -23,6 +23,7 @@ type FileEntry struct {
 // SyncState tracks sync snapshot, placeholders and pinned paths.
 type SyncState struct {
 	LocalFolder  string               `json:"local_folder"`
+	IsRepoRoot   *bool                `json:"is_repo_root,omitempty"`
 	ChangeCursor int64                `json:"change_cursor"`
 	OnDemand     bool                 `json:"on_demand"`
 	Pinned       []string             `json:"pinned,omitempty"`

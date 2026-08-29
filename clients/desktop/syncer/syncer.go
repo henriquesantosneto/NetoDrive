@@ -247,7 +247,6 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 			return err
 		}
 	}
-	setSyncWalkContext(localRoot)
 	remotePrefix = strings.Trim(remotePrefix, "/")
 
 	st, err := LoadState(statePath, localRoot)
@@ -255,13 +254,14 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		return err
 	}
 	st.OnDemand = onDemand
+	setSyncWalkContext(localRoot, &st)
 
-	fmt.Println("sync: verificando servidor...")
+	syncLog("sync: verificando servidor...")
 	if err := c.Ping(); err != nil {
 		return fmt.Errorf("servidor indisponivel (%s): %w", c.BaseURL, err)
 	}
 
-	fmt.Println("sync: aplicando changes remotos...")
+	syncLog("sync: aplicando changes remotos...")
 	newCursor, err := applyRemoteChanges(c, localRoot, st.ChangeCursor)
 	if err != nil {
 		if IsConnectionError(err) {
@@ -277,7 +277,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	if err != nil {
 		return err
 	}
-	fmt.Printf("sync: manifest com %d entradas\n", len(man.Files))
+	syncLog("sync: manifest com %d entradas", len(man.Files))
 	remotePre := map[string]ManifestEntry{}
 	for _, e := range man.Files {
 		if e.IsDir {
@@ -303,12 +303,12 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		return fmt.Errorf("migrate placeholders: %w", err)
 	}
 
-	fmt.Println("sync: escaneando pasta local...")
+	syncLog("sync: escaneando pasta local...")
 	local, err := scanLocalFilesForSync(localRoot, st.Known)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("sync: %d arquivos locais indexados\n", len(local))
+	syncLog("sync: %d arquivos locais indexados", len(local))
 
 	remote := map[string]ManifestEntry{}
 	legacyRemotes := map[string]string{}
@@ -342,11 +342,11 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	}
 
 	plan := planSync(local, remoteHashes, st.Known)
-	fmt.Printf("sync: plan upload=%d download=%d deleteLocal=%d deleteRemote=%d\n",
+	syncLog("sync: plan upload=%d download=%d deleteLocal=%d deleteRemote=%d",
 		len(plan.upload), len(plan.download), len(plan.deleteLocal), len(plan.deleteRemote))
 
 	for _, rel := range plan.deleteLocal {
-		fmt.Printf("× local %s (removido na web)\n", rel)
+		syncLog("× local %s (removido na web)", rel)
 		if err := deleteLocalFile(localRoot, rel); err != nil {
 			fmt.Fprintf(os.Stderr, "aviso: nao foi possivel remover %s: %v\n", rel, err)
 			continue
@@ -356,7 +356,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 
 	for _, rel := range plan.deleteRemote {
 		remotePath := remoteDeletePath(rel, remotePrefix, legacyRemotes)
-		fmt.Printf("× remoto %s (removido neste PC)\n", remotePath)
+		syncLog("× remoto %s (removido neste PC)", remotePath)
 		if err := c.Delete(remotePath); err != nil {
 			return fmt.Errorf("delete remote %s: %w", remotePath, err)
 		}
@@ -375,7 +375,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		}
 		if IsPlaceholderRel(localRoot, rel) {
 			if ok {
-				fmt.Printf("☁ atualiza placeholder %s\n", rel)
+				syncLog("☁ atualiza placeholder %s", rel)
 				if err := writePlaceholder(localRoot, rel, placeholderMeta{Hash: re.Hash, Size: re.Size}); err != nil {
 					fmt.Fprintf(os.Stderr, "aviso: placeholder %s: %v\n", rel, err)
 				}
@@ -386,12 +386,12 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		if remotePrefix != "" {
 			remotePath = remotePrefix + "/" + rel
 		}
-		fmt.Printf("↑ %s\n", remotePath)
+		syncLog("↑ %s", remotePath)
 		if _, err := c.Upload(localPath, remotePath); err != nil {
 			return fmt.Errorf("upload %s: %w", remotePath, err)
 		}
 		if oldRemote, ok := legacyRemotes[rel]; ok && oldRemote != remotePath {
-			fmt.Printf("↺ remove legacy %s\n", oldRemote)
+			syncLog("↺ remove legacy %s", oldRemote)
 			_ = c.Delete(oldRemote)
 		}
 	}
@@ -407,19 +407,19 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 			downloadPath = legacyRemote
 		}
 		if st.OnDemand && !isPinnedPath(st.Pinned, rel) {
-			fmt.Printf("☁ placeholder %s\n", rel)
+			syncLog("☁ placeholder %s", rel)
 			if err := writePlaceholder(localRoot, rel, placeholderMeta{Hash: e.Hash, Size: e.Size}); err != nil {
 				fmt.Fprintf(os.Stderr, "aviso: placeholder %s: %v\n", rel, err)
 				continue
 			}
 			continue
 		}
-		fmt.Printf("↓ %s\n", downloadPath)
+		syncLog("↓ %s", downloadPath)
 		if err := c.Download(downloadPath, localPath); err != nil {
 			return fmt.Errorf("download %s: %w", downloadPath, err)
 		}
 		if legacyRemote, ok := legacyRemotes[rel]; ok {
-			fmt.Printf("↺ remove legacy %s\n", legacyRemote)
+			syncLog("↺ remove legacy %s", legacyRemote)
 			_ = c.Delete(legacyRemote)
 		}
 	}
@@ -431,7 +431,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 
 	removeEmptyLegacyDirs(localRoot)
 
-	fmt.Println("sync: reindexando pasta local...")
+	syncLog("sync: reindexando pasta local...")
 	local, err = scanLocalFilesForSync(localRoot, st.Known)
 	if err != nil {
 		return err
@@ -460,6 +460,9 @@ func hydratePinnedFromManifest(c *Client, localRoot string, st *SyncState, remot
 		}
 		localPath := placeholderPath(localRoot, rel)
 		if !IsPlaceholderRel(localRoot, rel) {
+			if cfapiProviderActive() {
+				continue
+			}
 			if h, _, err := FileHash(localPath); err == nil && h == e.Hash {
 				continue
 			}
@@ -468,7 +471,7 @@ func hydratePinnedFromManifest(c *Client, localRoot string, st *SyncState, remot
 		if legacyRemote, ok := legacyRemotes[rel]; ok {
 			downloadPath = legacyRemote
 		}
-		fmt.Printf("↓ pinned %s\n", rel)
+		syncLog("↓ pinned %s", rel)
 		if err := c.Download(downloadPath, localPath); err != nil {
 			return fmt.Errorf("download pinned %s: %w", rel, err)
 		}

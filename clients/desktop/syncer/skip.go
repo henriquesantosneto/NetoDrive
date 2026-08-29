@@ -32,10 +32,31 @@ var repoTopSkipDirs = map[string]bool{
 
 var syncWalkLocalRoot string
 var syncWalkLocalRootIsRepo bool
+var repoRootCache = map[string]bool{}
 
-func setSyncWalkContext(localRoot string) {
+func setSyncWalkContext(localRoot string, st *SyncState) {
 	syncWalkLocalRoot = localRoot
-	syncWalkLocalRootIsRepo = IsLikelyRepoRoot(localRoot)
+	if st != nil && st.IsRepoRoot != nil {
+		syncWalkLocalRootIsRepo = *st.IsRepoRoot
+		repoRootCache[localRoot] = *st.IsRepoRoot
+		return
+	}
+	if v, ok := repoRootCache[localRoot]; ok {
+		syncWalkLocalRootIsRepo = v
+		if st != nil && st.IsRepoRoot == nil {
+			b := v
+			st.IsRepoRoot = &b
+		}
+		return
+	}
+	// Stat the sync root once per process; repeat Stat under CFAPI freezes Explorer.
+	v := IsLikelyRepoRoot(localRoot)
+	repoRootCache[localRoot] = v
+	syncWalkLocalRootIsRepo = v
+	if st != nil {
+		b := v
+		st.IsRepoRoot = &b
+	}
 }
 
 func shouldSkipWalkEntry(localRoot, absPath string, name string, isDir bool) bool {

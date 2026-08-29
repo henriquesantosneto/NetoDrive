@@ -346,14 +346,12 @@ func migrateLegacyPlaceholders(localRoot string, remote map[string]ManifestEntry
 	if !onDemand {
 		return nil
 	}
+	if cfapiProviderActive() {
+		return nil
+	}
 	for rel, e := range remote {
 		if isPinnedPath(pinned, rel) {
 			continue
-		}
-		if cfapiProviderActive() {
-			if _, ok := readPlaceholderMetaForRel(localRoot, rel); ok {
-				continue
-			}
 		}
 		content := placeholderPath(localRoot, rel)
 		if !IsPlaceholderMagicFile(content) {
