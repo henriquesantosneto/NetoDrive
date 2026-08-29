@@ -215,49 +215,30 @@ func FileHash(path string) (string, int64, error) {
 	return hex.EncodeToString(h.Sum(nil)), n, nil
 }
 
-// SyncFolder uploads local changes and downloads remote-only files into localRoot.
-// All paths map to the account root tree (no per-device prefix).
-func SyncFolder(c *Client, localRoot string) error {
-	return syncFolder(c, localRoot, "")
+// SyncFolder mirrors localRoot with the account tree, including deletions both ways.
+func SyncFolder(c *Client, localRoot, statePath string) error {
+	return syncFolder(c, localRoot, statePath, "")
 }
 
-func syncFolder(c *Client, localRoot, remotePrefix string) error {
+func syncFolder(c *Client, localRoot, statePath, remotePrefix string) error {
 	localRoot, err := filepath.Abs(localRoot)
 	if err != nil {
 		return err
 	}
 	remotePrefix = strings.Trim(remotePrefix, "/")
 
-	local := map[string]string{} // relative -> hash
-	err = filepath.Walk(localRoot, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if shouldSkipWalkEntry(localRoot, path, info.Name(), info.IsDir()) {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if info.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(localRoot, path)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		rel = localRelFromLocal(rel)
-		if rel == "" {
-			return nil
-		}
-		hash, _, err := FileHash(path)
-		if err != nil {
-			return err
-		}
-		local[rel] = hash
-		return nil
-	})
+	st, err := LoadState(statePath, localRoot)
+	if err != nil {
+		return err
+	}
+
+	newCursor, err := applyRemoteChanges(c, localRoot, st.ChangeCursor)
+	if err != nil {
+		return fmt.Errorf("apply changes: %w", err)
+	}
+	st.ChangeCursor = newCursor
+
+	local, err := scanLocalFiles(localRoot)
 	if err != nil {
 		return err
 	}
@@ -267,7 +248,7 @@ func syncFolder(c *Client, localRoot, remotePrefix string) error {
 		return err
 	}
 	remote := map[string]ManifestEntry{}
-	legacyRemotes := map[string]string{} // local rel -> old remote path
+	legacyRemotes := map[string]string{}
 	for _, e := range man.Files {
 		if e.IsDir {
 			continue
@@ -292,10 +273,36 @@ func syncFolder(c *Client, localRoot, remotePrefix string) error {
 		remote[rel] = e
 	}
 
-	// Upload local newer/missing
-	for rel, hash := range local {
+	remoteHashes := map[string]string{}
+	for rel, e := range remote {
+		remoteHashes[rel] = e.Hash
+	}
+
+	plan := planSync(local, remoteHashes, st.Known)
+
+	for _, rel := range plan.deleteLocal {
+		fmt.Printf("× local %s (removido na web)\n", rel)
+		if err := deleteLocalFile(localRoot, rel); err != nil {
+			return fmt.Errorf("delete local %s: %w", rel, err)
+		}
+		delete(local, rel)
+	}
+
+	for _, rel := range plan.deleteRemote {
+		remotePath := rel
+		if remotePrefix != "" {
+			remotePath = remotePrefix + "/" + rel
+		}
+		fmt.Printf("× remoto %s (removido neste PC)\n", remotePath)
+		if err := c.Delete(remotePath); err != nil {
+			return fmt.Errorf("delete remote %s: %w", remotePath, err)
+		}
+		delete(remote, rel)
+	}
+
+	for _, rel := range plan.upload {
 		re, ok := remote[rel]
-		if ok && re.Hash == hash {
+		if ok && re.Hash == local[rel] {
 			continue
 		}
 		remotePath := rel
@@ -313,9 +320,9 @@ func syncFolder(c *Client, localRoot, remotePrefix string) error {
 		}
 	}
 
-	// Download remote-only
-	for rel, e := range remote {
-		if _, ok := local[rel]; ok {
+	for _, rel := range plan.download {
+		e, ok := remote[rel]
+		if !ok {
 			continue
 		}
 		localPath := filepath.Join(localRoot, filepath.FromSlash(rel))
@@ -334,5 +341,18 @@ func syncFolder(c *Client, localRoot, remotePrefix string) error {
 	}
 
 	removeEmptyLegacyDirs(localRoot)
-	return nil
+
+	local, err = scanLocalFiles(localRoot)
+	if err != nil {
+		return err
+	}
+	st.Known = local
+
+	newCursor, err = applyRemoteChanges(c, localRoot, st.ChangeCursor)
+	if err != nil {
+		return fmt.Errorf("apply changes after sync: %w", err)
+	}
+	st.ChangeCursor = newCursor
+
+	return SaveState(statePath, st)
 }

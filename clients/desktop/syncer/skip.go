@@ -32,6 +32,9 @@ func shouldSkipWalkEntry(localRoot, absPath string, name string, isDir bool) boo
 		return false
 	}
 	rel = filepath.ToSlash(rel)
+	if rel == "." || rel == "" {
+		return false
+	}
 	for _, part := range strings.Split(rel, "/") {
 		if strings.HasPrefix(part, ".") {
 			return true

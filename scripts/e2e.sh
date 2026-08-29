@@ -67,6 +67,21 @@ curl -sf -X PUT "http://127.0.0.1:$PORT/api/gallery/sync" \
 curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/gallery/albums" | grep -q Camera
 curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/files?path=Galeria" | grep -q Camera
 
+echo "== delete sync web -> desktop =="
+echo "remove-me" >"$LOCAL/remove-me.txt"
+"$SYNC" -config "$DATA/cfg.json" -once
+curl -sf -X DELETE -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/files/remove-me.txt" >/dev/null
+"$SYNC" -config "$DATA/cfg.json" -once
+test ! -f "$LOCAL/remove-me.txt"
+
+echo "== delete sync desktop -> web =="
+echo "localdel" >"$LOCAL/localdel.txt"
+"$SYNC" -config "$DATA/cfg.json" -once
+rm -f "$LOCAL/localdel.txt"
+"$SYNC" -config "$DATA/cfg.json" -once
+curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/files?path=" | grep -qv localdel.txt
+curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/trash" | grep -q localdel.txt
+
 echo "== cache LRU unit =="
 (cd "$ROOT/server" && go test ./internal/cachelru ./internal/api)
 
@@ -79,6 +94,7 @@ echo
 echo "E2E_OK — requirements verified:"
 echo "  [x] Linux server"
 echo "  [x] Windows/desktop sync + open remote"
+echo "  [x] Delete sync web <-> desktop"
 echo "  [x] Web UI"
 echo "  [x] Gallery sync API for Android"
 echo "  [x] Remote open with Range/streaming"

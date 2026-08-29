@@ -108,7 +108,8 @@ func main() {
 
 	run := func() error {
 		fmt.Printf("[%s] syncing %s ↔ arvore da conta (raiz)\n", time.Now().Format(time.RFC3339), cfg.LocalFolder)
-		if err := syncer.SyncFolder(client, cfg.LocalFolder); err != nil {
+		statePath := syncer.DefaultStatePath(*cfgPath)
+		if err := syncer.SyncFolder(client, cfg.LocalFolder, statePath); err != nil {
 			fmt.Fprintf(os.Stderr, "sync error: %v\n", err)
 			return err
 		}

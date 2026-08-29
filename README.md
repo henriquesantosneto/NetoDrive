@@ -63,6 +63,8 @@ No JSON, configure só `local_folder` e `server_url`. O campo legado `remote_pre
 
 Se aparecer uma pasta **`PC`** local que não existe na web, atualize cliente e servidor: versões recentes migram `PC/` e `Android/` para a raiz automaticamente.
 
+**Exclusões** são sincronizadas nos dois sentidos: apagar na web remove no PC; apagar no PC envia para a lixeira na web.
+
 Exemplo:
 ```json
 {
