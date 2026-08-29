@@ -401,10 +401,38 @@ func defaultConfigPath() string {
 func defaultSyncFolder() string {
 	home, _ := os.UserHomeDir()
 	if runtime.GOOS == "windows" {
-		// Evita coincidir com o clone git em %USERPROFILE%\NetoDrive
-		return filepath.Join(home, "Documents", "NetoDrive")
+		// Fora do OneDrive: Documents costuma ser sincronizado pelo OneDrive no Windows.
+		return filepath.Join(home, "NetoDrive")
 	}
 	return filepath.Join(home, "Documents", "NetoDrive")
+}
+
+func isUnderOneDrive(path string) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	for _, env := range []string{"OneDrive", "OneDriveCommercial", "OneDriveConsumer"} {
+		base := os.Getenv(env)
+		if base == "" {
+			continue
+		}
+		baseAbs, err := filepath.Abs(base)
+		if err != nil {
+			continue
+		}
+		if strings.EqualFold(abs, baseAbs) {
+			return true
+		}
+		sep := string(os.PathSeparator)
+		if strings.HasPrefix(strings.ToLower(abs), strings.ToLower(baseAbs+sep)) {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveLocalFolder(cfgPath, folder string) string {
@@ -461,6 +489,12 @@ func normalizeConfig(cfg *Config) bool {
 		cfg.LocalFolder = defaultSyncFolder()
 		fmt.Fprintf(os.Stderr, "Aviso: local_folder apontava para o projeto git (%s).\n", abs)
 		fmt.Fprintf(os.Stderr, "         Usando pasta de dados: %s\n", cfg.LocalFolder)
+		return true
+	}
+	if runtime.GOOS == "windows" && isUnderOneDrive(abs) {
+		cfg.LocalFolder = defaultSyncFolder()
+		fmt.Fprintf(os.Stderr, "Aviso: local_folder estava dentro do OneDrive (%s).\n", abs)
+		fmt.Fprintf(os.Stderr, "         CFAPI nao funciona dentro do OneDrive. Usando: %s\n", cfg.LocalFolder)
 		return true
 	}
 	if abs != cfg.LocalFolder {

@@ -29,14 +29,15 @@ internal static class Program
 
             switch (args[0])
             {
+                case "-unregister":
+                case "-cleanup":
+                    SyncRootRegistrar.Unregister(cfg.LocalFolder);
+                    Console.WriteLine("Sync root removido.");
+                    return 0;
+
                 case "-register":
                     SyncRootRegistrar.Register(cfg);
                     Console.WriteLine("Sync root registrado.");
-                    return 0;
-
-                case "-unregister":
-                    SyncRootRegistrar.Unregister(cfg.LocalFolder);
-                    Console.WriteLine("Sync root removido.");
                     return 0;
 
                 case "-placeholder":

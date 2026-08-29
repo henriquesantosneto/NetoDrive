@@ -21,7 +21,7 @@ internal sealed class AppConfig
         if (string.IsNullOrWhiteSpace(cfg.LocalFolder))
         {
             cfg.LocalFolder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 "NetoDrive");
         }
         cfg.LocalFolder = Path.GetFullPath(cfg.LocalFolder);

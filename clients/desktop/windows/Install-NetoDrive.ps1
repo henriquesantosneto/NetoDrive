@@ -60,7 +60,7 @@ $cfg = Join-Path $ConfigDir "netodrive.json"
 if (-not (Test-Path $cfg)) {
   & (Join-Path $InstallDir "netodrive-sync.exe") -init -config $cfg
   Write-Host "Config criada em $cfg"
-  Write-Host "Edite server_url e local_folder (padrao: Documents\NetoDrive)."
+  Write-Host "Edite server_url e local_folder (padrao: $env:USERPROFILE\NetoDrive, fora do OneDrive)."
   notepad $cfg
 }
 
@@ -78,9 +78,16 @@ if ($dotnet) {
     $providerExe = Join-Path $InstallDir "netodrive-provider.exe"
     if (Test-Path $providerExe) {
       & $providerExe -unregister -config $cfg 2>$null
-      & $providerExe -register -config $cfg
+      $regOut = & $providerExe -register -config $cfg 2>&1
+      $regOut | ForEach-Object { Write-Host $_ }
       if ($LASTEXITCODE -ne 0) {
-        Write-Host "AVISO: registro do sync root falhou (codigo $LASTEXITCODE). Verifique local_folder em $cfg"
+        Write-Host ""
+        Write-Host "AVISO: registro CFAPI falhou." -ForegroundColor Yellow
+        Write-Host "  Causa comum: pasta dentro do OneDrive (Documents)." -ForegroundColor Yellow
+        $suggested = Join-Path $env:USERPROFILE "NetoDrive"
+        Write-Host "  Edite $cfg e defina:" -ForegroundColor Yellow
+        Write-Host "    `"local_folder`": `"$suggested`"" -ForegroundColor Yellow
+        Write-Host "  Depois rode Install-NetoDrive.ps1 novamente." -ForegroundColor Yellow
       }
     }
   }

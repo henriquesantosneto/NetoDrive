@@ -97,7 +97,7 @@ internal sealed class ProviderHost : IDisposable
 
             var transfer = new CF_OPERATION_PARAMETERS.TRANSFERDATA
             {
-                CompletionStatus = NTStatus.STATUS_SUCCESS,
+                CompletionStatus = (NTStatus)0,
                 Buffer = bufMem.DangerousGetHandle(),
                 Offset = offset + done,
                 Length = read,

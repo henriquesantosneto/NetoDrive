@@ -12,8 +12,10 @@ internal static class SyncRootRegistrar
 {
     internal static void Register(AppConfig cfg)
     {
+        SyncRootCleanup.ValidatePath(cfg.LocalFolder);
+        SyncRootCleanup.DeepUnregister(cfg.LocalFolder);
+
         Directory.CreateDirectory(cfg.LocalFolder);
-        Unregister(cfg.LocalFolder);
 
         var folder = StorageFolder.GetFolderFromPathAsync(cfg.LocalFolder).AsTask().GetAwaiter().GetResult();
         var iconExe = Path.Combine(AppContext.BaseDirectory, "netodrive-sync.exe");
@@ -29,6 +31,9 @@ internal static class SyncRootRegistrar
             : "%SystemRoot%\\system32\\imageres.dll,1043";
 
         var syncRootId = Paths.SyncRootId;
+        Console.WriteLine($"Registrando sync root: {syncRootId}");
+        Console.WriteLine($"Pasta: {cfg.LocalFolder}");
+
         var info = new StorageProviderSyncRootInfo
         {
             Id = syncRootId,
@@ -54,14 +59,6 @@ internal static class SyncRootRegistrar
 
     internal static void Unregister(string localFolder)
     {
-        _ = localFolder;
-        try
-        {
-            StorageProviderSyncRootManager.Unregister(Paths.SyncRootId);
-        }
-        catch
-        {
-            // best effort
-        }
+        SyncRootCleanup.DeepUnregister(localFolder);
     }
 }
