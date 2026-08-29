@@ -56,6 +56,15 @@ internal static class Program
                     PlaceholderManager.Create(cfg, rel, hash, size);
                     return 0;
 
+                case "-remove":
+                    if (args.Length < 2)
+                    {
+                        Console.Error.WriteLine("Uso: -remove <rel>");
+                        return 1;
+                    }
+                    PlaceholderManager.Remove(cfg, args[1]);
+                    return 0;
+
                 case "-run":
                     using (var host = new ProviderHost(cfg))
                     {
@@ -87,7 +96,7 @@ internal static class Program
     private static void PrintUsage()
     {
         Console.WriteLine("""
-            netodrive-provider -register | -unregister | -run | -status | -placeholder <rel> <hash> <size>
+            netodrive-provider -register | -unregister | -run | -status | -placeholder <rel> <hash> <size> | -remove <rel>
               -config <path>   (opcional, padrao %APPDATA%\\NetoDrive\\netodrive.json)
             """);
     }

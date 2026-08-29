@@ -68,7 +68,8 @@ func applyRemoteChanges(c *Client, localRoot string, cursor int64) (int64, error
 			}
 			fmt.Printf("× local %s (excluido no servidor)\n", rel)
 			if err := deleteLocalFile(localRoot, rel); err != nil {
-				return cursor, err
+				fmt.Fprintf(os.Stderr, "aviso: nao foi possivel remover %s: %v\n", rel, err)
+				continue
 			}
 		}
 		if resp.Cursor <= cursor {
@@ -83,9 +84,13 @@ func deleteLocalFile(localRoot, rel string) error {
 		return nil
 	}
 	removePlatformPlaceholder(localRoot, rel)
+	_ = deleteLocalFilePlatform(localRoot, rel)
 	abs := filepath.Join(localRoot, filepath.FromSlash(rel))
 	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
-		return err
+		_ = deleteLocalFilePlatform(localRoot, rel)
+		if err2 := os.Remove(abs); err2 != nil && !os.IsNotExist(err) {
+			return err2
+		}
 	}
 	// Remove legacy PC/Android copy if still on disk.
 	for _, prefix := range legacyDevicePrefixes {

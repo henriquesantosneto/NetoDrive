@@ -78,4 +78,20 @@ internal static class PlaceholderManager
         if (info.Result.Failed)
             throw new InvalidOperationException($"CfCreatePlaceholders {rel}: {info.Result}");
     }
+
+    internal static void Remove(AppConfig cfg, string rel)
+    {
+        rel = rel.Replace('\\', '/').Trim('/');
+        var full = Path.Combine(cfg.LocalFolder, rel.Replace('/', Path.DirectorySeparatorChar));
+        TryDeletePath(full + ".lnk");
+        TryDeletePath(full);
+    }
+
+    private static void TryDeletePath(string path)
+    {
+        if (!File.Exists(path))
+            return;
+        File.SetAttributes(path, FileAttributes.Normal);
+        File.Delete(path);
+    }
 }

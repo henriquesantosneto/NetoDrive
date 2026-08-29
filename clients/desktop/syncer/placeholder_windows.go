@@ -201,6 +201,15 @@ func removePlatformPlaceholder(localRoot, rel string) {
 	removePlaceholderMeta(localRoot, rel)
 }
 
+func deleteLocalFilePlatform(localRoot, rel string) error {
+	if exe := providerExe(); exe != "" {
+		cfg := defaultConfigForProvider()
+		cmd := exec.Command(exe, "-remove", filepath.ToSlash(rel), "-config", cfg)
+		_ = cmd.Run()
+	}
+	return nil
+}
+
 // ResolveOpenRel maps a double-click path (maybe .lnk) to account-relative path.
 func ResolveOpenRel(localRoot, argPath string) string {
 	argPath = strings.TrimSpace(argPath)

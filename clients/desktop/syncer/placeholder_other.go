@@ -25,6 +25,10 @@ func removePlatformPlaceholder(localRoot, rel string) {
 	removePlaceholderMeta(localRoot, rel)
 }
 
+func deleteLocalFilePlatform(localRoot, rel string) error {
+	return nil
+}
+
 // ResolveOpenRel maps a path under localRoot to account-relative path.
 func ResolveOpenRel(localRoot, argPath string) string {
 	abs, err := filepath.Abs(argPath)

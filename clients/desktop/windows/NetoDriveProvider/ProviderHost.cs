@@ -14,6 +14,7 @@ internal sealed class ProviderHost : IDisposable
 {
     private static ProviderHost? _active;
     private static readonly CF_CALLBACK FetchDataCb = OnFetchData;
+    private static readonly CF_CALLBACK NotifyDeleteCb = OnNotifyDelete;
 
     private readonly AppConfig _cfg;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(30) };
@@ -33,6 +34,11 @@ internal sealed class ProviderHost : IDisposable
             {
                 Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_FETCH_DATA,
                 Callback = FetchDataCb,
+            },
+            new()
+            {
+                Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_DELETE,
+                Callback = NotifyDeleteCb,
             },
             CF_CALLBACK_REGISTRATION.CF_CALLBACK_REGISTRATION_END,
         };
@@ -65,6 +71,38 @@ internal sealed class ProviderHost : IDisposable
         {
             Console.Error.WriteLine($"FETCH_DATA erro: {ex.Message}");
         }
+    }
+
+    private static void OnNotifyDelete(in CF_CALLBACK_INFO info, in CF_CALLBACK_PARAMETERS parameters)
+    {
+        try
+        {
+            AckDelete(in info, (NTStatus)0);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"NOTIFY_DELETE erro: {ex.Message}");
+        }
+    }
+
+    private static void AckDelete(in CF_CALLBACK_INFO info, NTStatus status)
+    {
+        var ack = new CF_OPERATION_PARAMETERS.ACKDELETE
+        {
+            Flags = CF_OPERATION_ACK_DELETE_FLAGS.CF_OPERATION_ACK_DELETE_FLAG_NONE,
+            CompletionStatus = status,
+        };
+        var opParams = CF_OPERATION_PARAMETERS.Create(ack);
+        var opInfo = new CF_OPERATION_INFO
+        {
+            StructSize = (uint)Marshal.SizeOf<CF_OPERATION_INFO>(),
+            Type = CF_OPERATION_TYPE.CF_OPERATION_TYPE_ACK_DELETE,
+            ConnectionKey = info.ConnectionKey,
+            TransferKey = info.TransferKey,
+            RequestKey = info.RequestKey,
+            CorrelationVector = info.CorrelationVector,
+        };
+        CfExecute(opInfo, ref opParams).ThrowIfFailed();
     }
 
     private void HandleFetchData(in CF_CALLBACK_INFO info, in CF_CALLBACK_PARAMETERS parameters)
