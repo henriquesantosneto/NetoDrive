@@ -240,9 +240,12 @@ func SyncFolder(c *Client, localRoot, statePath string, onDemand bool) error {
 }
 
 func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePrefix string) error {
-	localRoot, err := filepath.Abs(localRoot)
-	if err != nil {
-		return err
+	if !filepath.IsAbs(localRoot) {
+		var err error
+		localRoot, err = filepath.Abs(localRoot)
+		if err != nil {
+			return err
+		}
 	}
 	setSyncWalkContext(localRoot)
 	remotePrefix = strings.Trim(remotePrefix, "/")

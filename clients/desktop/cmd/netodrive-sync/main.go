@@ -193,23 +193,28 @@ func main() {
 		syncRunning = true
 		syncStarted = time.Now()
 		syncMu.Unlock()
+
+		fmt.Fprintf(os.Stderr, "[%s] syncing %s ↔ arvore da conta (raiz)\n", time.Now().Format(time.RFC3339), cfg.LocalFolder)
+
+		errCh := make(chan error, 1)
+	go func() {
+		var err error
 		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("sync panic: %v", r)
+			}
 			syncMu.Lock()
 			syncRunning = false
 			syncMu.Unlock()
+			errCh <- err
 		}()
-
-		fmt.Printf("[%s] syncing %s ↔ arvore da conta (raiz)\n", time.Now().Format(time.RFC3339), cfg.LocalFolder)
-
-		errCh := make(chan error, 1)
-		go func() {
-			errCh <- syncer.SyncFolder(client, cfg.LocalFolder, statePath, onDemand)
-		}()
+		err = syncer.SyncFolder(client, cfg.LocalFolder, statePath, onDemand)
+	}()
 		var err error
 		select {
 		case err = <-errCh:
 		case <-time.After(syncTimeout):
-			fmt.Fprintf(os.Stderr, "sync timeout apos %s — UI liberada; se Explorer travar, feche e abra o NetoDrive Sync\n", syncTimeout)
+			fmt.Fprintf(os.Stderr, "sync timeout apos %s — aguardando sync em background; use Liberar sync travado se Explorer congelar\n", syncTimeout)
 			return fmt.Errorf("sync timeout apos %s", syncTimeout)
 		}
 
@@ -222,7 +227,7 @@ func main() {
 			}
 			return err
 		}
-		fmt.Println("sync ok")
+		fmt.Fprintln(os.Stderr, "sync ok")
 		return nil
 	}
 
@@ -251,12 +256,15 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 		_, _ = w.Write([]byte(controlPanelHTML(cfg, onDemand)))
 	})
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
-		serverOK := client.Ping() == nil
 		syncMu.Lock()
 		running := syncRunning
 		started := syncStarted
 		syncMu.Unlock()
 		stuck := running && time.Since(started) > syncTimeout
+		serverOK := !running && client.Ping() == nil
+		if running {
+			serverOK = true
+		}
 		writeJSON(w, map[string]any{
 			"server_url":    cfg.ServerURL,
 			"local_folder":  cfg.LocalFolder,
@@ -337,12 +345,19 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		err := run()
-		if err != nil {
-			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		syncMu.Lock()
+		busy := syncRunning
+		syncMu.Unlock()
+		if busy {
+			writeJSON(w, map[string]any{"ok": false, "error": "sync ja em andamento"})
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true})
+		go func() {
+			if err := run(); err != nil {
+				fmt.Fprintf(os.Stderr, "sync: %v\n", err)
+			}
+		}()
+		writeJSON(w, map[string]any{"ok": true, "started": true})
 	})
 	mux.HandleFunc("/api/open-folder", func(w http.ResponseWriter, r *http.Request) {
 		_ = openFile(cfg.LocalFolder)
@@ -442,10 +457,16 @@ async function syncNow(){
 const m=document.getElementById('msg');const btn=document.querySelector('button');
 m.textContent='Sincronizando…';if(btn)btn.disabled=true;
 try{
-const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),120000);
-const j=await post('/api/sync',{signal:ctl.signal});clearTimeout(t);
-m.textContent=j.ok?'Sincronizacao concluida.':('Erro: '+(j.error||'falhou'));
-}catch(e){m.textContent=(e&&e.name==='AbortError')?'Tempo esgotado (2 min). Veja o console.':String(e)}
+const j=await post('/api/sync');
+if(!j.ok){m.textContent='Erro: '+(j.error||'falhou');return}
+for(let i=0;i<90;i++){
+await new Promise(r=>setTimeout(r,1000));
+const s=await fetch('/api/status').then(r=>r.json());
+if(!s.sync_running){
+m.textContent=s.sync_stuck?'Sync demorou demais — veja o console ou use Liberar sync.':'Sincronizacao concluida.';
+break}
+if(i===89)m.textContent='Ainda sincronizando (90s) — veja o console do NetoDrive Sync.'}
+}catch(e){m.textContent=String(e)}
 finally{if(btn)btn.disabled=false;refreshServer()}}
 async function refreshServer(){
 const el=document.getElementById('srv');

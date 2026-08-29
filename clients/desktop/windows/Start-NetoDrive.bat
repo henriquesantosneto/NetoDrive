@@ -20,7 +20,8 @@ if exist "%~dp0netodrive-provider.exe" (
   taskkill /IM netodrive-provider.exe /F >nul 2>&1
   timeout /t 1 /nobreak >nul
   "%~dp0netodrive-provider.exe" -ensure-register -config "%CFG%"
-  start "" /B "%~dp0netodrive-provider.exe" -run -config "%CFG%"
+  if not exist "%APPDATA%\NetoDrive\logs" mkdir "%APPDATA%\NetoDrive\logs" 2>nul
+  start "" /B cmd /c ""%~dp0netodrive-provider.exe" -run -config "%CFG%" >> "%APPDATA%\NetoDrive\logs\provider.log" 2>&1"
 )
 
 "%~dp0netodrive-sync.exe" -ui -config "%CFG%"
