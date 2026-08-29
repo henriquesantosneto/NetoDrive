@@ -31,6 +31,8 @@ data class FileMeta(
     val height: Int = 0,
 )
 
+data class FilesResponse(val path: String = "", val files: List<FileMeta> = emptyList())
+
 data class GalleryResponse(val items: List<FileMeta> = emptyList())
 
 class NetoDriveApi(
@@ -60,6 +62,16 @@ class NetoDriveApi(
                 ?: throw IOException("bad login json")
             token = parsed.token
             return parsed
+        }
+    }
+
+    fun listFiles(path: String): List<FileMeta> {
+        val q = java.net.URLEncoder.encode(path, "UTF-8")
+        val req = authBuilder("/api/files?path=$q").get().build()
+        client.newCall(req).execute().use { res ->
+            if (!res.isSuccessful) throw IOException("list failed: ${res.code}")
+            val json = res.body?.string() ?: "{}"
+            return moshi.adapter(FilesResponse::class.java).fromJson(json)?.files.orEmpty()
         }
     }
 
