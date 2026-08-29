@@ -46,10 +46,22 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/gallery/sync", s.withAuth(s.handleGallerySync))
 
 	// Static web UI (optional)
+	exeDir := ""
+	if exe, err := os.Executable(); err == nil {
+		exeDir = filepath.Dir(exe)
+	}
 	webRoots := []string{
 		filepath.Join("web", "dist"),
 		filepath.Join("..", "web", "dist"),
+		filepath.Join("..", "..", "..", "web", "dist"),
 		filepath.Join("/app", "web", "dist"),
+	}
+	if exeDir != "" {
+		webRoots = append([]string{
+			filepath.Join(exeDir, "web", "dist"),
+			filepath.Join(exeDir, "..", "web", "dist"),
+			filepath.Join(exeDir, "..", "..", "..", "web", "dist"),
+		}, webRoots...)
 	}
 	var webRoot string
 	for _, candidate := range webRoots {

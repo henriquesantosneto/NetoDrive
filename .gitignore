@@ -19,3 +19,9 @@ clients/desktop/netodrive.json
 # Ignore most binaries, but keep the Windows client exe shipped with the installer
 *.exe
 !clients/desktop/windows/netodrive-sync.exe
+!clients/desktop/windows/netodrive-server.exe
+!clients/desktop/windows/web/
+
+!clients/desktop/windows/web/
+!clients/desktop/windows/web/dist/
+!clients/desktop/windows/web/dist/**
