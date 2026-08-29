@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using Vanara.InteropServices;
+using Vanara.PInvoke;
 using static Vanara.PInvoke.CldApi;
 
 namespace NetoDriveProvider;
