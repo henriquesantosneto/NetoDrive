@@ -15,8 +15,9 @@ if not exist "%CFG%" (
   notepad "%CFG%"
 )
 
-REM Provider CFAPI: clique abre / menu nativo "Manter neste dispositivo"
+REM Provider CFAPI: re-registra sync root (local_folder) e sobe o provider
 if exist "%~dp0netodrive-provider.exe" (
+  "%~dp0netodrive-provider.exe" -register -config "%CFG%"
   start "" /B "%~dp0netodrive-provider.exe" -run -config "%CFG%"
 )
 

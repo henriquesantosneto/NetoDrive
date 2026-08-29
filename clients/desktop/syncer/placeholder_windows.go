@@ -144,7 +144,8 @@ func findSyncRootForPath(path string) (localRoot, rel string, ok bool) {
 	if err := json.Unmarshal(b, &doc); err != nil || doc.LocalFolder == "" {
 		return "", "", false
 	}
-	localRoot, err = filepath.Abs(doc.LocalFolder)
+	localRoot = ResolveLocalFolder(cfg, doc.LocalFolder)
+	localRoot, err = filepath.Abs(localRoot)
 	if err != nil {
 		return "", "", false
 	}

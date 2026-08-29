@@ -18,14 +18,34 @@ internal sealed class AppConfig
         {
             PropertyNameCaseInsensitive = true,
         }) ?? new AppConfig();
-        if (string.IsNullOrWhiteSpace(cfg.LocalFolder))
+        cfg.LocalFolder = LocalFolderResolver.Resolve(path, cfg.LocalFolder);
+        return cfg;
+    }
+}
+
+internal static class LocalFolderResolver
+{
+    internal static string Resolve(string configPath, string folder)
+    {
+        folder = (folder ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(folder))
         {
-            cfg.LocalFolder = Path.Combine(
+            return Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 "NetoDrive");
         }
-        cfg.LocalFolder = Path.GetFullPath(cfg.LocalFolder);
-        return cfg;
+        if (folder == "~" || folder.StartsWith("~/", StringComparison.Ordinal) ||
+            folder.StartsWith("~\\", StringComparison.Ordinal))
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            folder = folder.Length == 1 ? home : Path.Combine(home, folder.Substring(2));
+        }
+        if (Path.IsPathRooted(folder))
+            return Path.GetFullPath(folder);
+        var baseDir = Path.GetDirectoryName(configPath);
+        if (string.IsNullOrEmpty(baseDir))
+            baseDir = Environment.CurrentDirectory;
+        return Path.GetFullPath(Path.Combine(baseDir, folder));
     }
 }
 

@@ -27,12 +27,13 @@ internal static class NetoDriveConfig
         try
         {
             using var doc = JsonDocument.Parse(File.ReadAllText(ConfigPath));
-            if (doc.RootElement.TryGetProperty("local_folder", out var lf))
+            if (doc.RootElement.TryGetProperty("local_folder", out var lf) ||
+                doc.RootElement.TryGetProperty("LocalFolder", out lf))
             {
                 localFolder = lf.GetString() ?? "";
                 if (!string.IsNullOrWhiteSpace(localFolder))
                 {
-                    localFolder = Path.GetFullPath(localFolder.Trim());
+                    localFolder = ResolveLocalFolder(ConfigPath, localFolder.Trim());
                     return true;
                 }
             }
@@ -75,5 +76,28 @@ internal static class NetoDriveConfig
             WorkingDirectory = InstallDir,
         };
         System.Diagnostics.Process.Start(psi);
+    }
+
+    private static string ResolveLocalFolder(string configPath, string folder)
+    {
+        folder = (folder ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "NetoDrive");
+        }
+        if (folder == "~" || folder.StartsWith("~/", StringComparison.Ordinal) ||
+            folder.StartsWith("~\\", StringComparison.Ordinal))
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            folder = folder.Length == 1 ? home : Path.Combine(home, folder.Substring(2));
+        }
+        if (Path.IsPathRooted(folder))
+            return Path.GetFullPath(folder);
+        var baseDir = Path.GetDirectoryName(configPath);
+        if (string.IsNullOrEmpty(baseDir))
+            baseDir = Environment.CurrentDirectory;
+        return Path.GetFullPath(Path.Combine(baseDir, folder));
     }
 }
