@@ -43,6 +43,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/sync/download/", s.withAuth(s.handleDownload))
 	mux.HandleFunc("/api/open/", s.withAuth(s.handleOpen))
 	mux.HandleFunc("/api/gallery", s.withAuth(s.handleGallery))
+	mux.HandleFunc("/api/gallery/albums", s.withAuth(s.handleGalleryAlbums))
+	mux.HandleFunc("/api/gallery/albums/", s.withAuth(s.handleGalleryAlbumItems))
 	mux.HandleFunc("/api/gallery/sync", s.withAuth(s.handleGallerySync))
 	mux.HandleFunc("/api/trash", s.withAuth(s.handleTrash))
 	mux.HandleFunc("/api/trash/", s.withAuth(s.handleTrashItem))
@@ -108,7 +110,7 @@ func spaFallback(root string, fs http.Handler) http.Handler {
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Device-Id, X-File-Path, X-File-Mime, X-File-Mtime, X-Gallery-Key, X-Width, X-Height, X-Taken-At")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Device-Id, X-File-Path, X-File-Mime, X-File-Mtime, X-Gallery-Key, X-Gallery-Album, X-Width, X-Height, X-Taken-At")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -468,6 +470,47 @@ func (s *Server) handleGallery(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
+func (s *Server) handleGalleryAlbums(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	c := claimsFrom(r)
+	albums, err := s.Store.ListGalleryAlbums(c.UserID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if albums == nil {
+		albums = []store.GalleryAlbum{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"albums": albums})
+}
+
+func (s *Server) handleGalleryAlbumItems(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	c := claimsFrom(r)
+	raw := strings.TrimPrefix(r.URL.Path, "/api/gallery/albums/")
+	albumPath := strings.Trim(path.Clean("/"+raw), "/")
+	if albumPath == "" || albumPath == "." {
+		albumPath = "Galeria"
+	} else if !strings.HasPrefix(albumPath, "Galeria") {
+		albumPath = "Galeria/" + albumPath
+	}
+	items, err := s.Store.ListGalleryAlbumItems(c.UserID, albumPath)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if items == nil {
+		items = []store.FileMeta{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"path": albumPath, "items": items})
+}
+
 func (s *Server) handleGallerySync(w http.ResponseWriter, r *http.Request) {
 	// Same as upload but requires gallery_key — convenience endpoint for Android
 	if r.Header.Get("X-Gallery-Key") == "" {
@@ -476,11 +519,25 @@ func (s *Server) handleGallerySync(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Header.Get("X-File-Path") == "" {
 		key := r.Header.Get("X-Gallery-Key")
+		album := r.Header.Get("X-Gallery-Album")
+		if album == "" {
+			album = "Camera"
+		}
+		album = strings.Trim(strings.ReplaceAll(album, "\\", "/"), "/")
+		album = path.Base(album)
+		if album == "" || album == "." || album == ".." {
+			album = "Camera"
+		}
 		name := filepath.Base(r.URL.Query().Get("name"))
 		if name == "" || name == "." {
 			name = key + ".jpg"
 		}
-		r.Header.Set("X-File-Path", "Gallery/"+name)
+		r.Header.Set("X-File-Path", "Galeria/"+album+"/"+name)
+	}
+	// Normalize legacy Gallery/ prefix to Galeria/
+	fp := r.Header.Get("X-File-Path")
+	if strings.HasPrefix(fp, "Gallery/") {
+		r.Header.Set("X-File-Path", "Galeria/"+strings.TrimPrefix(fp, "Gallery/"))
 	}
 	s.handleUpload(w, r)
 }

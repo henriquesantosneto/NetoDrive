@@ -104,9 +104,24 @@ export function downloadUrl(path: string) {
   return `${apiBase()}/api/sync/download/${encodePath(path)}?token=${encodeURIComponent(getToken())}`;
 }
 
+export type GalleryAlbum = {
+  name: string;
+  path: string;
+  count: number;
+  cover?: string;
+};
+
 export function listGallery(limit = 60, offset = 0) {
   const q = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   return request<{ items: FileMeta[] }>(`/api/gallery?${q}`);
+}
+
+export function listGalleryAlbums() {
+  return request<{ albums: GalleryAlbum[] }>("/api/gallery/albums");
+}
+
+export function listGalleryAlbum(albumPath: string) {
+  return request<{ path: string; items: FileMeta[] }>(`/api/gallery/albums/${encodePath(albumPath)}`);
 }
 
 export function listTrash() {

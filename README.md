@@ -8,7 +8,7 @@ Interfaces no estilo **OneDrive**; o servidor roda como **serviço systemd** (se
 | Pasta | Função |
 |---|---|
 | `server/` | API de sync + storage (blobs SHA-256) + JWT |
-| `web/` | UI estilo OneDrive (lista, sidebar, abrir remoto) |
+| `web/` | UI estilo OneDrive: arvore unica + Galeria (albuns) + Lixeira |
 | `clients/desktop/` | Sync de pastas no Windows/Linux |
 | `clients/android/` | Galeria + modo cache LRU + abrir remoto |
 | `deploy/` | Unit systemd + env de exemplo |

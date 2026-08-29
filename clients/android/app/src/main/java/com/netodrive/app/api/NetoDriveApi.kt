@@ -86,6 +86,7 @@ class NetoDriveApi(
 
     fun uploadGalleryItem(
         localFile: File,
+        album: String,
         remoteName: String,
         galleryKey: String,
         mime: String,
@@ -93,12 +94,14 @@ class NetoDriveApi(
         height: Int,
         takenAtIso: String?,
     ): FileMeta {
+        val safeAlbum = album.trim().ifBlank { "Camera" }
         val body = localFile.asRequestBody(mime.toMediaType())
         val builder = authBuilder("/api/gallery/sync")
             .put(body)
             .header("X-Device-Id", deviceId)
             .header("X-Gallery-Key", galleryKey)
-            .header("X-File-Path", "Gallery/$remoteName")
+            .header("X-Gallery-Album", safeAlbum)
+            .header("X-File-Path", "Galeria/$safeAlbum/$remoteName")
             .header("X-File-Mime", mime)
             .header("X-Width", width.toString())
             .header("X-Height", height.toString())

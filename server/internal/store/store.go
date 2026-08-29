@@ -655,9 +655,11 @@ func (s *Store) ListGallery(userID int64, limit, offset int) ([]FileMeta, error)
 SELECT id, user_id, path, name, is_dir, size, hash, mime, mtime, deleted, version,
        device_id, gallery_key, width, height, taken_at
 FROM files
-WHERE user_id=? AND deleted=0 AND gallery_key != '' AND mime LIKE 'image/%'
+WHERE user_id=? AND deleted=0 AND is_dir=0
+  AND (path=? OR path LIKE ?)
+  AND (mime LIKE 'image/%' OR mime LIKE 'video/%')
 ORDER BY COALESCE(taken_at, mtime) DESC
-LIMIT ? OFFSET ?`, userID, limit, offset)
+LIMIT ? OFFSET ?`, userID, "Galeria", "Galeria/%", limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -671,6 +673,106 @@ LIMIT ? OFFSET ?`, userID, limit, offset)
 		out = append(out, f)
 	}
 	return out, rows.Err()
+}
+
+type GalleryAlbum struct {
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	Count int    `json:"count"`
+	Cover string `json:"cover,omitempty"` // path of cover image
+}
+
+func (s *Store) ListGalleryAlbums(userID int64) ([]GalleryAlbum, error) {
+	// Ensure root Galeria exists as conceptual root; albums = direct child dirs
+	children, err := s.ListDir(userID, "Galeria")
+	if err != nil {
+		return nil, err
+	}
+	var albums []GalleryAlbum
+	rootMedia := 0
+	var rootCover string
+	for _, c := range children {
+		if c.IsDir {
+			desc, err := s.ListDescendants(userID, c.Path, false)
+			if err != nil {
+				return nil, err
+			}
+			count := 0
+			cover := ""
+			for _, d := range desc {
+				if d.IsDir {
+					continue
+				}
+				if strings.HasPrefix(d.Mime, "image/") || strings.HasPrefix(d.Mime, "video/") {
+					count++
+					if cover == "" && strings.HasPrefix(d.Mime, "image/") {
+						cover = d.Path
+					}
+				}
+			}
+			albums = append(albums, GalleryAlbum{Name: c.Name, Path: c.Path, Count: count, Cover: cover})
+		} else if strings.HasPrefix(c.Mime, "image/") || strings.HasPrefix(c.Mime, "video/") {
+			rootMedia++
+			if rootCover == "" && strings.HasPrefix(c.Mime, "image/") {
+				rootCover = c.Path
+			}
+		}
+	}
+	if rootMedia > 0 {
+		albums = append([]GalleryAlbum{{
+			Name:  "Camera",
+			Path:  "Galeria",
+			Count: rootMedia,
+			Cover: rootCover,
+		}}, albums...)
+	}
+	return albums, nil
+}
+
+func (s *Store) ListGalleryAlbumItems(userID int64, albumPath string) ([]FileMeta, error) {
+	albumPath = strings.Trim(albumPath, "/")
+	if albumPath == "" {
+		albumPath = "Galeria"
+	}
+	if albumPath != "Galeria" && !strings.HasPrefix(albumPath, "Galeria/") {
+		return nil, fmt.Errorf("invalid album path")
+	}
+	var items []FileMeta
+	if albumPath == "Galeria" {
+		// only direct media children of Galeria (not nested albums)
+		children, err := s.ListDir(userID, "Galeria")
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range children {
+			if !c.IsDir && (strings.HasPrefix(c.Mime, "image/") || strings.HasPrefix(c.Mime, "video/")) {
+				items = append(items, c)
+			}
+		}
+		return items, nil
+	}
+	desc, err := s.ListDescendants(userID, albumPath, false)
+	if err != nil {
+		return nil, err
+	}
+	// also include files directly in albumPath via ListDir for consistency
+	direct, _ := s.ListDir(userID, albumPath)
+	seen := map[string]bool{}
+	for _, c := range direct {
+		if !c.IsDir && (strings.HasPrefix(c.Mime, "image/") || strings.HasPrefix(c.Mime, "video/")) {
+			items = append(items, c)
+			seen[c.Path] = true
+		}
+	}
+	for _, d := range desc {
+		if d.IsDir || seen[d.Path] {
+			continue
+		}
+		if strings.HasPrefix(d.Mime, "image/") || strings.HasPrefix(d.Mime, "video/") {
+			items = append(items, d)
+		}
+	}
+	return items, nil
 }
 
 func (s *Store) EnsureParentDirs(userID int64, filePath, deviceID string) error {

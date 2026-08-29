@@ -124,7 +124,8 @@ func TestUploadDownloadOpenAndGallery(t *testing.T) {
 	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/api/gallery/sync", bytes.NewReader(img))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("X-Gallery-Key", "img-1")
-	req.Header.Set("X-File-Path", "Gallery/img-1.jpg")
+	req.Header.Set("X-File-Path", "Galeria/Camera/img-1.jpg")
+	req.Header.Set("X-Gallery-Album", "Camera")
 	req.Header.Set("X-File-Mime", "image/jpeg")
 	req.Header.Set("X-Device-Id", "android-test")
 	res, err = http.DefaultClient.Do(req)
@@ -134,6 +135,18 @@ func TestUploadDownloadOpenAndGallery(t *testing.T) {
 	res.Body.Close()
 	if res.StatusCode != 200 {
 		t.Fatalf("gallery upload %d", res.StatusCode)
+	}
+
+	req, _ = http.NewRequest(http.MethodGet, ts.URL+"/api/gallery/albums", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ = io.ReadAll(res.Body)
+	res.Body.Close()
+	if !bytes.Contains(body, []byte("Camera")) {
+		t.Fatalf("albums missing Camera: %s", body)
 	}
 
 	req, _ = http.NewRequest(http.MethodGet, ts.URL+"/api/gallery", nil)

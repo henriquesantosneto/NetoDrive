@@ -36,14 +36,14 @@ echo "== Windows/desktop sync =="
 echo "from-windows" >"$LOCAL/hello.txt"
 mkdir -p "$LOCAL/docs" && echo "doc" >"$LOCAL/docs/note.txt"
 cat >"$DATA/cfg.json" <<EOF
-{"server_url":"http://127.0.0.1:$PORT","token":"$TOKEN","device_id":"e2e-win","local_folder":"$LOCAL","remote_prefix":"PC","interval_sec":30}
+{"server_url":"http://127.0.0.1:$PORT","token":"$TOKEN","device_id":"e2e-win","local_folder":"$LOCAL","remote_prefix":"","interval_sec":30}
 EOF
 "$SYNC" -config "$DATA/cfg.json" -once
-curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/files?path=PC" | grep -q hello.txt
+curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/files?path=" | grep -q hello.txt
 
 echo "== open remote with Range =="
 CODE=$(curl -s -o "$DATA/open.txt" -w "%{http_code}" -H "Authorization: Bearer $TOKEN" \
-  -H "Range: bytes=0-4" "http://127.0.0.1:$PORT/api/open/PC/hello.txt")
+  -H "Range: bytes=0-4" "http://127.0.0.1:$PORT/api/open/hello.txt")
 if [[ "$CODE" != "206" && "$CODE" != "200" ]]; then
   echo "unexpected status $CODE" >&2
   exit 1
@@ -51,7 +51,7 @@ fi
 grep -q from "$DATA/open.txt"
 
 echo "== desktop open remote file =="
-"$SYNC" -config "$DATA/cfg.json" -open "PC/docs/note.txt"
+"$SYNC" -config "$DATA/cfg.json" -open "docs/note.txt"
 test -f "$LOCAL/docs/note.txt"
 
 echo "== Android gallery sync API =="
@@ -59,11 +59,13 @@ printf 'fake-jpeg' >"$DATA/photo.jpg"
 curl -sf -X PUT "http://127.0.0.1:$PORT/api/gallery/sync" \
   -H "Authorization: Bearer $TOKEN" \
   -H "X-Gallery-Key: img-e2e-1" \
-  -H "X-File-Path: Gallery/img-e2e-1.jpg" \
+  -H "X-Gallery-Album: Camera" \
+  -H "X-File-Path: Galeria/Camera/img-e2e-1.jpg" \
   -H "X-File-Mime: image/jpeg" \
   -H "X-Device-Id: android-e2e" \
   --data-binary @"$DATA/photo.jpg" >/dev/null
-curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/gallery" | grep -q img-e2e-1
+curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/gallery/albums" | grep -q Camera
+curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/files?path=Galeria" | grep -q Camera
 
 echo "== cache LRU unit =="
 (cd "$ROOT/server" && go test ./internal/cachelru ./internal/api)

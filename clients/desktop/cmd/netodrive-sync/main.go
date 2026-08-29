@@ -42,7 +42,7 @@ func main() {
 			Password:     "admin123",
 			DeviceID:     uuid.NewString(),
 			LocalFolder:  defaultSyncFolder(),
-			RemotePrefix: "PC",
+			RemotePrefix: "",
 			IntervalSec:  30,
 		}
 		b, _ := json.MarshalIndent(sample, "", "  ")
