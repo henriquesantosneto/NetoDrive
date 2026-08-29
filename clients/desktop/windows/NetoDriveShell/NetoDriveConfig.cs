@@ -55,7 +55,7 @@ internal static class NetoDriveConfig
             root = Path.GetFullPath(root);
             if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
                 return false;
-            relative = Path.GetRelativePath(root, full).Replace('\\', '/').Trim('/');
+            relative = PathUtil.GetRelativePath(root, full).Replace('\\', '/').Trim('/');
             return relative.Length > 0 && !relative.StartsWith("..", StringComparison.Ordinal);
         }
         catch

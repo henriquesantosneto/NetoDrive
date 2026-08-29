@@ -16,34 +16,24 @@ internal static class SyncRootRegistrar
     internal static void Register(AppConfig cfg)
     {
         Directory.CreateDirectory(cfg.LocalFolder);
+        Unregister(cfg.LocalFolder);
 
         var folder = StorageFolder.GetFolderFromPathAsync(cfg.LocalFolder).AsTask().GetAwaiter().GetResult();
-        var icon = Path.Combine(AppContext.BaseDirectory, "netodrive-sync.exe");
-        if (!File.Exists(icon))
-            icon = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetoDrive", "netodrive-sync.exe");
-
-        var info = new StorageProviderSyncRootInfo
+        var iconExe = Path.Combine(AppContext.BaseDirectory, "netodrive-sync.exe");
+        if (!File.Exists(iconExe))
         {
-            Id = Paths.SyncRootId,
-            ProviderId = Paths.ProviderId,
-            Path = folder,
-            DisplayNameResource = "NetoDrive",
-            IconResource = icon,
-            AllowPinning = true,
-            ShowSiblingsAsGroup = false,
-            HydrationPolicy = StorageProviderHydrationPolicy.Full,
-            PopulationPolicy = StorageProviderPopulationPolicy.Full,
-            InSyncPolicy = StorageProviderInSyncPolicy.FileCreationTime | StorageProviderInSyncPolicy.FileLastWriteTime,
-            Version = "1.0",
-            Context = CryptographicBuffer.ConvertStringToBinary("NetoDrive", BinaryStringEncoding.Utf8),
-        };
-
-        StorageProviderSyncRootManager.Register(info);
+            iconExe = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "NetoDrive",
+                "netodrive-sync.exe");
+        }
+        // SHLoadIndirectString format: path,index
+        var iconResource = File.Exists(iconExe) ? $"{iconExe},0" : "%SystemRoot%\\system32\\imageres.dll,1043";
 
         var reg = new CF_SYNC_REGISTRATION
         {
             StructSize = (uint)Marshal.SizeOf<CF_SYNC_REGISTRATION>(),
-            ProviderName = "NetoDrive",
+            ProviderName = Paths.ProviderName,
             ProviderVersion = "1.0",
             ProviderId = Paths.ProviderId,
         };
@@ -54,11 +44,11 @@ internal static class SyncRootRegistrar
             Hydration = new CF_HYDRATION_POLICY
             {
                 Primary = CF_HYDRATION_POLICY_PRIMARY.CF_HYDRATION_POLICY_FULL,
-                Modifier = CF_HYDRATION_POLICY_MODIFIER.CF_HYDRATION_POLICY_MODIFIER_AUTO_DEHYDRATION_ALLOWED,
+                Modifier = CF_HYDRATION_POLICY_MODIFIER.CF_HYDRATION_POLICY_MODIFIER_NONE,
             },
             Population = new CF_POPULATION_POLICY
             {
-                Primary = CF_POPULATION_POLICY_PRIMARY.CF_POPULATION_POLICY_FULL,
+                Primary = CF_POPULATION_POLICY_PRIMARY.CF_POPULATION_POLICY_ALWAYS_FULL,
                 Modifier = CF_POPULATION_POLICY_MODIFIER.CF_POPULATION_POLICY_MODIFIER_NONE,
             },
             InSync = CF_INSYNC_POLICY.CF_INSYNC_POLICY_NONE,
@@ -68,6 +58,28 @@ internal static class SyncRootRegistrar
         var hr = CfRegisterSyncRoot(cfg.LocalFolder, reg, pol, CF_REGISTER_FLAGS.CF_REGISTER_FLAG_NONE);
         if (hr.Failed)
             throw new InvalidOperationException($"CfRegisterSyncRoot falhou: {hr}");
+
+        var context = $"{cfg.LocalFolder}|{Paths.SyncRootId}";
+        var info = new StorageProviderSyncRootInfo
+        {
+            Id = Paths.SyncRootId,
+            ProviderId = Paths.ProviderId,
+            Path = folder,
+            DisplayNameResource = Paths.ProviderName,
+            IconResource = iconResource,
+            AllowPinning = true,
+            ShowSiblingsAsGroup = false,
+            HardlinkPolicy = StorageProviderHardlinkPolicy.None,
+            HydrationPolicy = StorageProviderHydrationPolicy.Full,
+            HydrationPolicyModifier = StorageProviderHydrationPolicyModifier.None,
+            PopulationPolicy = StorageProviderPopulationPolicy.AlwaysFull,
+            InSyncPolicy = StorageProviderInSyncPolicy.FileCreationTime | StorageProviderInSyncPolicy.DirectoryCreationTime,
+            Version = "1.0.0",
+            Context = CryptographicBuffer.ConvertStringToBinary(context, BinaryStringEncoding.Utf8),
+        };
+
+        StorageProviderSyncRootManager.Register(info);
+        Thread.Sleep(500);
     }
 
     internal static void Unregister(string localFolder)
@@ -80,6 +92,13 @@ internal static class SyncRootRegistrar
         {
             // best effort
         }
-        CfUnregisterSyncRoot(localFolder);
+        try
+        {
+            CfUnregisterSyncRoot(localFolder);
+        }
+        catch
+        {
+            // best effort
+        }
     }
 }

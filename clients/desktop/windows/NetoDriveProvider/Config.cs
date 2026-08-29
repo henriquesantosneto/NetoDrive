@@ -1,3 +1,4 @@
+using System.Security.Principal;
 using System.Text.Json;
 
 namespace NetoDriveProvider;
@@ -31,10 +32,21 @@ internal sealed class AppConfig
 internal static class Paths
 {
     internal static readonly Guid ProviderId = new("8F3E2A1B-4C5D-9E6F-A1B2-C3D4E5F67890");
+    internal const string ProviderName = "NetoDrive";
+    internal const string AccountId = "Primary";
+
     internal static string ConfigPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "NetoDrive",
         "netodrive.json");
 
-    internal static string SyncRootId => $"{ProviderId}!NetoDrive!Primary";
+    /// Sync root id format required by Windows: Provider!UserSid!Account
+    internal static string SyncRootId
+    {
+        get
+        {
+            var sid = WindowsIdentity.GetCurrent().User?.Value ?? "local";
+            return $"{ProviderName}!{sid}!{AccountId}";
+        }
+    }
 }

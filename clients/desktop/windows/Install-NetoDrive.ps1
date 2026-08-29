@@ -77,6 +77,7 @@ if ($dotnet) {
     Pop-Location
     $providerExe = Join-Path $InstallDir "netodrive-provider.exe"
     if (Test-Path $providerExe) {
+      & $providerExe -unregister -config $cfg 2>$null
       & $providerExe -register -config $cfg
       if ($LASTEXITCODE -ne 0) {
         Write-Host "AVISO: registro do sync root falhou (codigo $LASTEXITCODE). Verifique local_folder em $cfg"
