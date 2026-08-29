@@ -12,7 +12,7 @@ namespace NetoDriveProvider;
 /// </summary>
 internal static class CfPlaceholderOps
 {
-    private static readonly LARGE_INTEGER Eof = new() { QuadPart = -1 };
+    private const long Eof = -1;
 
     internal static void SetPinState(string fullPath, CF_PIN_STATE state)
     {
