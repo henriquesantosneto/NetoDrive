@@ -18,11 +18,11 @@ import (
 	"github.com/netodrive/desktop/syncer"
 )
 
-const buildVersion = "fast-path-cfapi-v14"
+const buildVersion = "fast-path-cfapi-v15"
 
 const (
-	minSyncIntervalSec = 5
-	maxSyncIntervalSec = 86400
+	minSyncIntervalSec     = 1
+	maxSyncIntervalSec     = 86400
 	defaultSyncIntervalSec = 30
 )
 

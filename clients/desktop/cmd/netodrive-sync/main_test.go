@@ -77,7 +77,8 @@ func TestLoadConfigIntervalAliases(t *testing.T) {
 		{"snake_case", `{"interval_sec":120}`, 120},
 		{"camelCase", `{"intervalSec":45}`, 45},
 		{"PascalCase", `{"IntervalSec":90}`, 90},
-		{"minimum_clamp", `{"interval_sec":2}`, minSyncIntervalSec},
+		{"minimum_clamp", `{"interval_sec":0}`, defaultSyncIntervalSec},
+		{"one_second", `{"interval_sec":1}`, 1},
 	}
 
 	for _, tc := range tests {
