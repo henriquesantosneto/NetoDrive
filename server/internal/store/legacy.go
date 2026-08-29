@@ -127,6 +127,16 @@ func (s *Store) flattenLegacyPrefix(userID int64, prefix string) (int, error) {
 	return moved, nil
 }
 
+// RenamePath moves a file record to a new path without re-uploading blob data.
+func (s *Store) RenamePath(userID int64, oldPath, newPath string) error {
+	oldPath = strings.Trim(strings.ReplaceAll(oldPath, "\\", "/"), "/")
+	newPath = strings.Trim(strings.ReplaceAll(newPath, "\\", "/"), "/")
+	if oldPath == "" || newPath == "" || oldPath == newPath {
+		return fmt.Errorf("invalid rename paths")
+	}
+	return s.relocatePath(userID, oldPath, newPath)
+}
+
 func (s *Store) relocatePath(userID int64, oldPath, newPath string) error {
 	f, err := s.GetFileByPath(userID, oldPath)
 	if err != nil {

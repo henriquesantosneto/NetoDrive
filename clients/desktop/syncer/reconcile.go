@@ -12,6 +12,7 @@ type PlanSyncOptions struct {
 	LocalRoot            string
 	RematerializeMissing bool
 	PendingLocalDeletes  map[string]bool
+	PendingLocalRenames  map[string]string // from -> to
 }
 
 // planSync decides how to reconcile local disk with the remote manifest using
@@ -20,6 +21,21 @@ func planSync(local, remote, known map[string]string, opts PlanSyncOptions) sync
 	var p syncPlan
 
 	for rel, hash := range local {
+		if opts.PendingLocalRenames != nil {
+			skip := false
+			for from, to := range opts.PendingLocalRenames {
+				if rel != to {
+					continue
+				}
+				if remoteHash, ok := remote[from]; ok && remoteHash == hash {
+					skip = true
+					break
+				}
+			}
+			if skip {
+				continue
+			}
+		}
 		remoteHash, inRemote := remote[rel]
 		_, wasKnown := known[rel]
 		if inRemote {
@@ -37,6 +53,11 @@ func planSync(local, remote, known map[string]string, opts PlanSyncOptions) sync
 	}
 
 	for rel := range remote {
+		if opts.PendingLocalRenames != nil {
+			if _, pending := opts.PendingLocalRenames[rel]; pending {
+				continue
+			}
+		}
 		if _, inLocal := local[rel]; inLocal {
 			continue
 		}

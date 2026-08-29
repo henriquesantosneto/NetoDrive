@@ -91,6 +91,22 @@ func TestPlanSyncCFAPIDeleteWhenKnownAbsentNoMeta(t *testing.T) {
 	}
 }
 
+func TestPlanSyncCFAPIPendingRenameSkipsUploadDownload(t *testing.T) {
+	local := map[string]string{"new.txt": "aaa"}
+	remote := map[string]string{"old.txt": "aaa"}
+	known := map[string]string{"old.txt": "aaa"}
+
+	p := planSync(local, remote, known, PlanSyncOptions{
+		PendingLocalRenames: map[string]string{"old.txt": "new.txt"},
+	})
+	if len(p.upload) != 0 {
+		t.Fatalf("should not upload during pending rename: %#v", p)
+	}
+	if len(p.download) != 0 {
+		t.Fatalf("should not download old name during pending rename: %#v", p)
+	}
+}
+
 func TestPlanSyncCFAPIPendingDeleteStillDeletesRemote(t *testing.T) {
 	root := t.TempDir()
 	local := map[string]string{}

@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Vanara.InteropServices;
 using Vanara.PInvoke;
 using static Vanara.PInvoke.CldApi;
@@ -227,18 +228,57 @@ internal sealed class ProviderHost : IDisposable
         }
 
         var fromRel = Path.GetRelativePath(_cfg.LocalFolder, sourcePath).Replace('\\', '/').Trim('/');
-        var toRel = targetPath.StartsWith(_cfg.LocalFolder, StringComparison.OrdinalIgnoreCase)
-            ? Path.GetRelativePath(_cfg.LocalFolder, targetPath).Replace('\\', '/').Trim('/')
-            : Path.GetFileName(targetPath).Replace('\\', '/').Trim('/');
+        var toRel = ResolveRenameTarget(fromRel, targetPath, _cfg.LocalFolder);
 
         if (!string.IsNullOrEmpty(fromRel) && fromRel != "." &&
             !string.IsNullOrEmpty(toRel) && toRel != "." && !string.Equals(fromRel, toRel, StringComparison.OrdinalIgnoreCase))
         {
             PlaceholderCatalog.MoveMeta(_cfg, fromRel, toRel);
             LocalChangesQueue.EnqueueRename(_cfg, fromRel, toRel);
+            TryRenameRemote(fromRel, toRel);
         }
 
         AckRename(in info, (NTStatus)0);
+    }
+
+    private void TryRenameRemote(string fromRel, string toRel)
+    {
+        try
+        {
+            var body = JsonSerializer.Serialize(new { from = fromRel, to = toRel });
+            using var req = new HttpRequestMessage(HttpMethod.Post,
+                $"{_cfg.ServerURL.TrimEnd('/')}/api/sync/rename")
+            {
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+            };
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _cfg.Token);
+            using var res = _http.Send(req);
+            res.EnsureSuccessStatusCode();
+            Console.WriteLine($"rename remoto ok: {fromRel} -> {toRel}");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"rename remoto {fromRel}->{toRel}: {ex.Message}");
+        }
+    }
+
+    private static string ResolveRenameTarget(string fromRel, string targetPath, string localFolder)
+    {
+        targetPath = targetPath.Trim();
+        if (targetPath.StartsWith(localFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetRelativePath(localFolder, targetPath).Replace('\\', '/').Trim('/');
+        }
+
+        var fileName = Path.GetFileName(targetPath.Replace('/', Path.DirectorySeparatorChar));
+        if (string.IsNullOrEmpty(fileName))
+            return "";
+
+        fromRel = fromRel.Replace('\\', '/').Trim('/');
+        var slash = fromRel.LastIndexOf('/');
+        if (slash < 0)
+            return fileName;
+        return fromRel[..slash] + "/" + fileName;
     }
 
     private void HandleNotifyDelete(in CF_CALLBACK_INFO info)
@@ -432,59 +472,143 @@ internal sealed class ProviderHost : IDisposable
         if (!path.StartsWith(_cfg.LocalFolder, StringComparison.OrdinalIgnoreCase))
             return;
 
-        var rel = Path.GetRelativePath(_cfg.LocalFolder, path).Replace('\\', '/');
+        var pathRel = Path.GetRelativePath(_cfg.LocalFolder, path).Replace('\\', '/').Trim('/');
+        if (string.IsNullOrEmpty(pathRel) || pathRel == ".")
+            return;
+
         var offset = fetch.RequiredFileOffset;
         var need = fetch.RequiredLength;
+        if (need < 0)
+            need = 0;
 
-        using var req = new HttpRequestMessage(HttpMethod.Get,
-            $"{_cfg.ServerURL.TrimEnd('/')}/api/sync/download/{Uri.EscapeDataString(rel)}");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _cfg.Token);
-        if (need > 0)
-            req.Headers.Range = new RangeHeaderValue(offset, offset + need - 1);
-
-        using var res = _http.Send(req);
-        res.EnsureSuccessStatusCode();
-        using var stream = res.Content.ReadAsStream();
-
-        var buffer = new byte[Math.Min(Math.Max(need, 1), 1024 * 1024)];
-        long done = 0;
-        while (done < need)
+        try
         {
-            var toRead = (int)Math.Min(buffer.Length, need - done);
-            var read = stream.Read(buffer, 0, toRead);
-            if (read <= 0)
-                break;
+            using var res = OpenDownloadResponse(info, pathRel, offset, need);
+            using var stream = res.Content.ReadAsStream();
 
-            var chunk = buffer.AsSpan(0, read).ToArray();
-            using var bufMem = new SafeCoTaskMemHandle(chunk);
+            var buffer = new byte[Math.Min(Math.Max(need, 1), 1024 * 1024)];
+            long done = 0;
+            var total = need > 0 ? need : (res.Content.Headers.ContentLength ?? 0);
+            if (total <= 0 && need == 0)
+                total = 1;
 
-            var transfer = new CF_OPERATION_PARAMETERS.TRANSFERDATA
+            while (need == 0 || done < need)
             {
-                CompletionStatus = (NTStatus)0,
-                Buffer = bufMem.DangerousGetHandle(),
-                Offset = offset + done,
-                Length = read,
-            };
+                var toRead = need > 0
+                    ? (int)Math.Min(buffer.Length, need - done)
+                    : buffer.Length;
+                var read = stream.Read(buffer, 0, toRead);
+                if (read <= 0)
+                    break;
 
-            var opParams = CF_OPERATION_PARAMETERS.Create(transfer);
-            var opInfo = new CF_OPERATION_INFO
-            {
-                StructSize = (uint)Marshal.SizeOf<CF_OPERATION_INFO>(),
-                Type = CF_OPERATION_TYPE.CF_OPERATION_TYPE_TRANSFER_DATA,
-                ConnectionKey = info.ConnectionKey,
-                TransferKey = info.TransferKey,
-                RequestKey = info.RequestKey,
-            };
+                var chunk = buffer.AsSpan(0, read).ToArray();
+                using var bufMem = new SafeCoTaskMemHandle(chunk);
 
-            CfExecute(opInfo, ref opParams).ThrowIfFailed();
-            done += read;
+                var transfer = new CF_OPERATION_PARAMETERS.TRANSFERDATA
+                {
+                    CompletionStatus = (NTStatus)0,
+                    Buffer = bufMem.DangerousGetHandle(),
+                    Offset = offset + done,
+                    Length = read,
+                };
+
+                var opParams = CF_OPERATION_PARAMETERS.Create(transfer);
+                var opInfo = new CF_OPERATION_INFO
+                {
+                    StructSize = (uint)Marshal.SizeOf<CF_OPERATION_INFO>(),
+                    Type = CF_OPERATION_TYPE.CF_OPERATION_TYPE_TRANSFER_DATA,
+                    ConnectionKey = info.ConnectionKey,
+                    TransferKey = info.TransferKey,
+                    RequestKey = info.RequestKey,
+                };
+
+                CfExecute(opInfo, ref opParams).ThrowIfFailed();
+                done += read;
+                if (need == 0)
+                    break;
+            }
+
+            if (done > 0 || need == 0)
+                PlaceholderCatalog.SetCloudOnly(_cfg, pathRel, false);
         }
-
-        rel = rel.Replace('\\', '/').Trim('/');
-        if (!string.IsNullOrEmpty(rel) && rel != "." && done > 0)
+        catch (Exception ex)
         {
-            PlaceholderCatalog.SetCloudOnly(_cfg, rel, false);
-            LocalChangesQueue.EnqueuePinOp(_cfg, "pin", rel);
+            Console.Error.WriteLine($"FETCH_DATA {pathRel}: {ex.Message}");
+            TransferFetchDataFailure(info, offset, need, ex);
+        }
+    }
+
+    private HttpResponseMessage OpenDownloadResponse(in CF_CALLBACK_INFO info, string pathRel, long offset, long need)
+    {
+        var candidates = DownloadRelCandidates(info, pathRel);
+        Exception? last = null;
+        foreach (var rel in candidates)
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get,
+                    $"{_cfg.ServerURL.TrimEnd('/')}/api/sync/download/{RemotePathUtil.EscapeRemotePath(rel)}");
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _cfg.Token);
+                if (need > 0)
+                    req.Headers.Range = new RangeHeaderValue(offset, offset + need - 1);
+
+                var res = _http.Send(req);
+                if (res.IsSuccessStatusCode)
+                    return res;
+                last = new HttpRequestException($"HTTP {(int)res.StatusCode} for {rel}");
+                res.Dispose();
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+            }
+        }
+        throw last ?? new InvalidOperationException($"download failed for {pathRel}");
+    }
+
+    private static IEnumerable<string> DownloadRelCandidates(in CF_CALLBACK_INFO info, string pathRel)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (seen.Add(pathRel))
+            yield return pathRel;
+
+        if (info.FileIdentity != IntPtr.Zero && info.FileIdentityLength > 0)
+        {
+            var bytes = new byte[info.FileIdentityLength];
+            Marshal.Copy(info.FileIdentity, bytes, 0, bytes.Length);
+            if (PlaceholderIdentity.TryDecode(bytes, out var idRel, out _, out _) &&
+                !string.IsNullOrEmpty(idRel) && seen.Add(idRel))
+            {
+                yield return idRel;
+            }
+        }
+    }
+
+    private static void TransferFetchDataFailure(in CF_CALLBACK_INFO info, long offset, long need, Exception ex)
+    {
+        var transfer = new CF_OPERATION_PARAMETERS.TRANSFERDATA
+        {
+            CompletionStatus = (NTStatus)0xC0000001, // STATUS_UNSUCCESSFUL
+            Buffer = IntPtr.Zero,
+            Offset = offset,
+            Length = 0,
+        };
+        var opParams = CF_OPERATION_PARAMETERS.Create(transfer);
+        var opInfo = new CF_OPERATION_INFO
+        {
+            StructSize = (uint)Marshal.SizeOf<CF_OPERATION_INFO>(),
+            Type = CF_OPERATION_TYPE.CF_OPERATION_TYPE_TRANSFER_DATA,
+            ConnectionKey = info.ConnectionKey,
+            TransferKey = info.TransferKey,
+            RequestKey = info.RequestKey,
+        };
+        try
+        {
+            CfExecute(opInfo, ref opParams);
+        }
+        catch
+        {
+            Console.Error.WriteLine($"FETCH_DATA ack failed: {ex.Message}");
         }
     }
 

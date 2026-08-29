@@ -150,6 +150,18 @@ func migratePinnedPaths(pinned []string, from, to string) []string {
 	return out
 }
 
+func pendingRenameMap(localRoot string) map[string]string {
+	set, err := PendingLocalRenameSet(localRoot)
+	if err != nil || len(set) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(set))
+	for _, rn := range set {
+		out[rn.From] = rn.To
+	}
+	return out
+}
+
 // applyPendingLocalRenames moves server-side paths for Explorer renames queued by the provider.
 func applyPendingLocalRenames(c *Client, localRoot, remotePrefix string, legacyRemotes map[string]string, st *SyncState) error {
 	set, err := PendingLocalRenameSet(localRoot)
@@ -169,25 +181,14 @@ func applyPendingLocalRenames(c *Client, localRoot, remotePrefix string, legacyR
 			delete(st.Entries, from)
 		}
 
-		localPath := filepath.Join(localRoot, filepath.FromSlash(to))
+		oldRemote := remoteDeletePath(from, remotePrefix, legacyRemotes)
 		newRemote := to
 		if remotePrefix != "" {
 			newRemote = remotePrefix + "/" + to
 		}
-		oldRemote := remoteDeletePath(from, remotePrefix, legacyRemotes)
-
-		if _, err := os.Stat(localPath); err == nil {
-			syncLog("↪ rename upload %s -> %s", from, to)
-			if _, err := c.Upload(localPath, newRemote); err != nil {
-				return fmt.Errorf("rename upload %s: %w", to, err)
-			}
-		}
-		syncLog("↪ rename delete remote %s", oldRemote)
-		if err := c.Delete(oldRemote); err != nil {
-			fmt.Fprintf(os.Stderr, "aviso: rename delete %s: %v\n", oldRemote, err)
-		}
-		if oldRemote != from {
-			_ = c.Delete(from)
+		syncLog("↪ rename remoto %s -> %s", oldRemote, newRemote)
+		if err := c.Rename(oldRemote, newRemote); err != nil {
+			return fmt.Errorf("rename remote %s -> %s: %w", oldRemote, newRemote, err)
 		}
 		if err := ClearLocalRename(localRoot, rn); err != nil {
 			return err

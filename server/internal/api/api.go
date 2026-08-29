@@ -40,6 +40,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/sync/manifest", s.withAuth(s.handleManifest))
 	mux.HandleFunc("/api/sync/changes", s.withAuth(s.handleChanges))
 	mux.HandleFunc("/api/sync/upload", s.withAuth(s.handleUpload))
+	mux.HandleFunc("/api/sync/rename", s.withAuth(s.handleSyncRename))
 	mux.HandleFunc("/api/sync/download/", s.withAuth(s.handleDownload))
 	mux.HandleFunc("/api/open/", s.withAuth(s.handleOpen))
 	mux.HandleFunc("/api/gallery", s.withAuth(s.handleGallery))
@@ -402,6 +403,38 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		TakenAt:    takenAt,
 	}
 	if err := s.Store.UpsertFile(meta); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, meta)
+}
+
+func (s *Server) handleSyncRename(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	c := claimsFrom(r)
+	var body struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	from := strings.Trim(strings.ReplaceAll(body.From, "\\", "/"), "/")
+	to := strings.Trim(strings.ReplaceAll(body.To, "\\", "/"), "/")
+	if from == "" || to == "" {
+		writeErr(w, http.StatusBadRequest, "from and to required")
+		return
+	}
+	if err := s.Store.RenamePath(c.UserID, from, to); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	meta, err := s.Store.GetFileByPath(c.UserID, to)
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

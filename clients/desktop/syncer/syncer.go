@@ -154,6 +154,33 @@ func (c *Client) Upload(localPath, remotePath string) (*FileMeta, error) {
 	return &meta, nil
 }
 
+func (c *Client) Rename(oldPath, newPath string) error {
+	oldPath = strings.Trim(strings.ReplaceAll(oldPath, "\\", "/"), "/")
+	newPath = strings.Trim(strings.ReplaceAll(newPath, "\\", "/"), "/")
+	if oldPath == "" || newPath == "" {
+		return fmt.Errorf("invalid rename paths")
+	}
+	body, err := json.Marshal(map[string]string{"from": oldPath, "to": newPath})
+	if err != nil {
+		return err
+	}
+	req, err := c.authReq(http.MethodPost, "/api/sync/rename", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("rename failed: %s", string(b))
+	}
+	return nil
+}
+
 func (c *Client) Download(remotePath, localPath string) error {
 	req, err := c.authReq(http.MethodGet, "/api/sync/download/"+escapePath(remotePath), nil)
 	if err != nil {
@@ -469,10 +496,12 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	}
 
 	pendingDeletes, _ := PendingLocalDeleteSet(localRoot)
+	pendingRenames := pendingRenameMap(localRoot)
 	plan := planSync(local, remoteHashes, st.Known, PlanSyncOptions{
 		LocalRoot:            localRoot,
 		RematerializeMissing: cfapiProviderActive(),
 		PendingLocalDeletes:  pendingDeletes,
+		PendingLocalRenames:  pendingRenames,
 	})
 	syncLog("sync: plan upload=%d download=%d deleteLocal=%d deleteRemote=%d",
 		len(plan.upload), len(plan.download), len(plan.deleteLocal), len(plan.deleteRemote))
