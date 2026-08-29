@@ -71,6 +71,12 @@ func Open(dbPath, dataDir string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if n, err := s.MigrateLegacyDevicePrefixes(); err != nil {
+		_ = db.Close()
+		return nil, err
+	} else if n > 0 {
+		fmt.Printf("netodrive: migrated %d legacy device-prefix paths to account root\n", n)
+	}
 	return s, nil
 }
 

@@ -247,6 +247,10 @@ func syncFolder(c *Client, localRoot, remotePrefix string) error {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
+		rel = localRelFromLocal(rel)
+		if rel == "" {
+			return nil
+		}
 		hash, _, err := FileHash(path)
 		if err != nil {
 			return err
@@ -263,19 +267,27 @@ func syncFolder(c *Client, localRoot, remotePrefix string) error {
 		return err
 	}
 	remote := map[string]ManifestEntry{}
+	legacyRemotes := map[string]string{} // local rel -> old remote path
 	for _, e := range man.Files {
 		if e.IsDir {
 			continue
 		}
-		rel := e.Path
+		path := e.Path
 		if remotePrefix != "" {
-			if !strings.HasPrefix(e.Path, remotePrefix+"/") && e.Path != remotePrefix {
+			if !strings.HasPrefix(path, remotePrefix+"/") && path != remotePrefix {
 				continue
 			}
-			rel = strings.TrimPrefix(e.Path, remotePrefix+"/")
+			path = strings.TrimPrefix(path, remotePrefix+"/")
 			if e.Path == remotePrefix {
 				continue
 			}
+		}
+		rel, legacyRemote := localRelFromRemote(path)
+		if rel == "" {
+			continue
+		}
+		if legacyRemote != "" {
+			legacyRemotes[rel] = e.Path
 		}
 		remote[rel] = e
 	}
@@ -295,6 +307,10 @@ func syncFolder(c *Client, localRoot, remotePrefix string) error {
 		if _, err := c.Upload(localPath, remotePath); err != nil {
 			return fmt.Errorf("upload %s: %w", remotePath, err)
 		}
+		if oldRemote, ok := legacyRemotes[rel]; ok && oldRemote != remotePath {
+			fmt.Printf("↺ remove legacy %s\n", oldRemote)
+			_ = c.Delete(oldRemote)
+		}
 	}
 
 	// Download remote-only
@@ -303,10 +319,20 @@ func syncFolder(c *Client, localRoot, remotePrefix string) error {
 			continue
 		}
 		localPath := filepath.Join(localRoot, filepath.FromSlash(rel))
-		fmt.Printf("↓ %s\n", e.Path)
-		if err := c.Download(e.Path, localPath); err != nil {
-			return fmt.Errorf("download %s: %w", e.Path, err)
+		downloadPath := e.Path
+		if legacyRemote, ok := legacyRemotes[rel]; ok {
+			downloadPath = legacyRemote
+		}
+		fmt.Printf("↓ %s\n", downloadPath)
+		if err := c.Download(downloadPath, localPath); err != nil {
+			return fmt.Errorf("download %s: %w", downloadPath, err)
+		}
+		if legacyRemote, ok := legacyRemotes[rel]; ok {
+			fmt.Printf("↺ remove legacy %s\n", legacyRemote)
+			_ = c.Delete(legacyRemote)
 		}
 	}
+
+	removeEmptyLegacyDirs(localRoot)
 	return nil
 }

@@ -61,6 +61,8 @@ Pasta padrão: `%USERPROFILE%\NetoDrive` · Config: `%APPDATA%\NetoDrive\netodri
 **Árvore única:** todos os dispositivos sincronizam na **raiz da conta** (sem prefixo por PC/celular).  
 No JSON, configure só `local_folder` e `server_url`. O campo legado `remote_prefix` é ignorado e removido ao salvar.
 
+Se aparecer uma pasta **`PC`** local que não existe na web, atualize cliente e servidor: versões recentes migram `PC/` e `Android/` para a raiz automaticamente.
+
 Exemplo:
 ```json
 {
