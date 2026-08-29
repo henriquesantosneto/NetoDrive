@@ -33,9 +33,12 @@ type Config struct {
 }
 
 var (
-	syncMu      sync.Mutex
-	syncRunning bool
+	syncMu       sync.Mutex
+	syncRunning  bool
+	syncStarted  time.Time
 )
+
+const syncTimeout = 3 * time.Minute
 
 func onDemandEnabled(cfg Config) bool {
 	if cfg.OnDemand == nil {
@@ -179,10 +182,16 @@ func main() {
 	run := func() error {
 		syncMu.Lock()
 		if syncRunning {
-			syncMu.Unlock()
-			return fmt.Errorf("sync ja em andamento")
+			if time.Since(syncStarted) > syncTimeout+time.Minute {
+				fmt.Fprintf(os.Stderr, "aviso: sync anterior parece travado; liberando para nova tentativa\n")
+				syncRunning = false
+			} else {
+				syncMu.Unlock()
+				return fmt.Errorf("sync ja em andamento")
+			}
 		}
 		syncRunning = true
+		syncStarted = time.Now()
 		syncMu.Unlock()
 		defer func() {
 			syncMu.Lock()
@@ -191,7 +200,20 @@ func main() {
 		}()
 
 		fmt.Printf("[%s] syncing %s ↔ arvore da conta (raiz)\n", time.Now().Format(time.RFC3339), cfg.LocalFolder)
-		if err := syncer.SyncFolder(client, cfg.LocalFolder, statePath, onDemand); err != nil {
+
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- syncer.SyncFolder(client, cfg.LocalFolder, statePath, onDemand)
+		}()
+		var err error
+		select {
+		case err = <-errCh:
+		case <-time.After(syncTimeout):
+			fmt.Fprintf(os.Stderr, "sync timeout apos %s — UI liberada; se Explorer travar, feche e abra o NetoDrive Sync\n", syncTimeout)
+			return fmt.Errorf("sync timeout apos %s", syncTimeout)
+		}
+
+		if err != nil {
 			if syncer.IsConnectionError(err) {
 				fmt.Fprintf(os.Stderr, "sync error: servidor inacessivel (%s): %v\n", cfg.ServerURL, err)
 				fmt.Fprintf(os.Stderr, "  Inicie o servidor NetoDrive ou corrija server_url em %s\n", *cfgPath)
@@ -204,7 +226,7 @@ func main() {
 		return nil
 	}
 
-	_ = run()
+	go run()
 
 	if *ui {
 		startControlPanel(cfg, *cfgPath, client, onDemand, run)
@@ -232,7 +254,9 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 		serverOK := client.Ping() == nil
 		syncMu.Lock()
 		running := syncRunning
+		started := syncStarted
 		syncMu.Unlock()
+		stuck := running && time.Since(started) > syncTimeout
 		writeJSON(w, map[string]any{
 			"server_url":    cfg.ServerURL,
 			"local_folder":  cfg.LocalFolder,
@@ -242,7 +266,18 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 			"remote_tree":   "arvore da conta (raiz)",
 			"server_online": serverOK,
 			"sync_running":  running,
+			"sync_stuck":    stuck,
 		})
+	})
+	mux.HandleFunc("/api/sync-reset", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		syncMu.Lock()
+		syncRunning = false
+		syncMu.Unlock()
+		writeJSON(w, map[string]any{"ok": true})
 	})
 	mux.HandleFunc("/api/hydrate", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -392,6 +427,7 @@ button:hover{filter:brightness(.96)}
 <button class="secondary" onclick="act('/api/pin')">Fixar neste PC</button>
 <button class="secondary" onclick="act('/api/unpin')">Liberar espaco</button>
 <button class="secondary" onclick="post('/api/open-folder')">Abrir pasta</button>
+<button class="secondary" onclick="resetSync()">Liberar sync travado</button>
 <button class="secondary" onclick="post('/api/open-web')">Abrir NetoDrive na web</button>
 </div>
 <p id="msg" class="muted"></p>
@@ -417,8 +453,10 @@ try{
 const s=await fetch('/api/status').then(r=>r.json());
 if(s.server_online){el.className='ok';el.textContent='Servidor online: '+s.server_url}
 else{el.className='bad';el.textContent='Servidor OFFLINE em '+s.server_url+' — inicie o NetoDrive server ou corrija server_url no netodrive.json'}
-if(s.sync_running)el.textContent+=' (sync em andamento)';
+if(s.sync_stuck){el.className='bad';el.textContent+=' — SYNC TRAVADO: feche e reabra o NetoDrive Sync ou clique Liberar sync'}
+else if(s.sync_running){el.textContent+=' (sync em andamento)'}
 }catch(e){el.className='bad';el.textContent='Nao foi possivel verificar o servidor.'}}
+async function resetSync(){const m=document.getElementById('msg');await post('/api/sync-reset');m.textContent='Sync liberado. Tente sincronizar de novo.';refreshServer()}
 refreshServer();setInterval(refreshServer,15000);
 </script></body></html>`
 }

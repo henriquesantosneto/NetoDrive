@@ -253,10 +253,12 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	}
 	st.OnDemand = onDemand
 
+	fmt.Println("sync: verificando servidor...")
 	if err := c.Ping(); err != nil {
 		return fmt.Errorf("servidor indisponivel (%s): %w", c.BaseURL, err)
 	}
 
+	fmt.Println("sync: aplicando changes remotos...")
 	newCursor, err := applyRemoteChanges(c, localRoot, st.ChangeCursor)
 	if err != nil {
 		if IsConnectionError(err) {
@@ -298,10 +300,12 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		return fmt.Errorf("migrate placeholders: %w", err)
 	}
 
-	local, err := scanLocalFiles(localRoot)
+	fmt.Println("sync: escaneando pasta local...")
+	local, err := scanLocalFilesWithTimeout(localRoot, 2*time.Minute)
 	if err != nil {
 		return err
 	}
+	fmt.Printf("sync: %d arquivos locais indexados\n", len(local))
 
 	remote := map[string]ManifestEntry{}
 	legacyRemotes := map[string]string{}
@@ -424,7 +428,8 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 
 	removeEmptyLegacyDirs(localRoot)
 
-	local, err = scanLocalFiles(localRoot)
+	fmt.Println("sync: reindexando pasta local...")
+	local, err = scanLocalFilesWithTimeout(localRoot, 2*time.Minute)
 	if err != nil {
 		return err
 	}
