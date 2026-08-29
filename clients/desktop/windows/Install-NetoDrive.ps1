@@ -174,13 +174,13 @@ Copy-Item $exeSrc (Join-Path $InstallDir "netodrive-sync.exe") -Force
 $verOut = & (Join-Path $InstallDir "netodrive-sync.exe") -version 2>&1 | Select-Object -First 1
 if ($verOut) {
   Write-Host "Versao instalada: $verOut"
-  if ($verOut -match 'fast-path-cfapi-v(\d+)' -and [int]$Matches[1] -lt 19) {
+  if ($verOut -match 'fast-path-cfapi-v(\d+)' -and [int]$Matches[1] -lt 20) {
     Write-Host ""
     Write-Host "ERRO: binario antigo ($verOut). Rode:" -ForegroundColor Red
     Write-Host "  cd $Repo" -ForegroundColor Yellow
     Write-Host "  git pull origin main" -ForegroundColor Yellow
     Write-Host "  .\clients\desktop\windows\Install-NetoDrive.ps1" -ForegroundColor Yellow
-    throw "Atualize o repositorio para obter fast-path-cfapi-v19 ou superior."
+    throw "Atualize o repositorio para obter fast-path-cfapi-v20 ou superior."
   }
 } else {
   Write-Host "AVISO: exe sem flag -version (binario antigo). Instale Go e rode Install de novo." -ForegroundColor Yellow

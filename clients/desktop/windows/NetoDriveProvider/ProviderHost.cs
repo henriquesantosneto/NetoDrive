@@ -566,11 +566,12 @@ internal sealed class ProviderHost : IDisposable
         throw last ?? new InvalidOperationException($"download failed for {pathRel}");
     }
 
-    private static IEnumerable<string> DownloadRelCandidates(in CF_CALLBACK_INFO info, string pathRel)
+    private static List<string> DownloadRelCandidates(in CF_CALLBACK_INFO info, string pathRel)
     {
+        var outList = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (seen.Add(pathRel))
-            yield return pathRel;
+            outList.Add(pathRel);
 
         if (info.FileIdentity != IntPtr.Zero && info.FileIdentityLength > 0)
         {
@@ -579,9 +580,10 @@ internal sealed class ProviderHost : IDisposable
             if (PlaceholderIdentity.TryDecode(bytes, out var idRel, out _, out _) &&
                 !string.IsNullOrEmpty(idRel) && seen.Add(idRel))
             {
-                yield return idRel;
+                outList.Add(idRel);
             }
         }
+        return outList;
     }
 
     private static void TransferFetchDataFailure(in CF_CALLBACK_INFO info, long offset, long need, Exception ex)
