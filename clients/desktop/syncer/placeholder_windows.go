@@ -201,6 +201,7 @@ func removePlatformPlaceholder(localRoot, rel string) {
 	_ = os.Remove(placeholderPath(localRoot, rel))
 	_ = os.Remove(placeholderDiskPath(localRoot, rel))
 	removePlaceholderMeta(localRoot, rel)
+	_ = removePlaceholderQueueRel(localRoot, rel)
 }
 
 func deleteLocalFilePlatform(localRoot, rel string) error {

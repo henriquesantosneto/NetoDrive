@@ -18,6 +18,8 @@ internal static class LocalChangesQueue
         if (string.IsNullOrEmpty(rel))
             return;
 
+        RemovePlaceholderArtifacts(cfg, rel);
+
         var path = PendingDeletesPath(cfg);
         var existing = ReadAll(cfg);
         if (existing.Contains(rel))
@@ -26,6 +28,15 @@ internal static class LocalChangesQueue
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.AppendAllText(path, rel + Environment.NewLine);
         Console.WriteLine($"local delete enqueued: {rel}");
+    }
+
+    internal static void RemovePlaceholderArtifacts(AppConfig cfg, string rel)
+    {
+        rel = rel.Replace('\\', '/').Trim('/');
+        if (string.IsNullOrEmpty(rel))
+            return;
+        PlaceholderCatalog.RemoveMeta(cfg, rel);
+        PlaceholderQueue.RemoveRel(cfg, rel);
     }
 
     internal static HashSet<string> ReadAll(AppConfig cfg)

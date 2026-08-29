@@ -129,6 +129,80 @@ internal static class PlaceholderQueue
         return processed;
     }
 
+    internal static void RemoveRel(AppConfig cfg, string rel)
+    {
+        rel = rel.Replace('\\', '/').Trim('/');
+        if (string.IsNullOrEmpty(rel))
+            return;
+
+        var path = QueuePath(cfg);
+        List<string> lines;
+        lock (Gate)
+        {
+            lines = ReadAllLines(path);
+        }
+        if (lines.Count == 0)
+            return;
+
+        var kept = new List<string>();
+        var removed = false;
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+            try
+            {
+                var entry = JsonSerializer.Deserialize<PlaceholderQueueEntry>(line);
+                if (entry != null &&
+                    string.Equals(entry.Rel.Replace('\\', '/').Trim('/'), rel, StringComparison.OrdinalIgnoreCase))
+                {
+                    removed = true;
+                    continue;
+                }
+            }
+            catch
+            {
+                // keep malformed lines
+            }
+            kept.Add(line);
+        }
+        if (!removed)
+            return;
+
+        lock (Gate)
+        {
+            Rewrite(path, kept);
+        }
+    }
+
+    private static List<string> ReadAllLines(string path)
+    {
+        if (!File.Exists(path))
+            return new List<string>();
+        try
+        {
+            return File.ReadAllLines(path)
+                .Where(line => !string.IsNullOrWhiteSpace(line))
+                .ToList();
+        }
+        catch (IOException)
+        {
+            return new List<string>();
+        }
+    }
+
+    private static void Rewrite(string path, List<string> lines)
+    {
+        if (lines.Count == 0)
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+            return;
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllLines(path, lines);
+    }
+
     private static List<string> ReadAndClear(string path)
     {
         var lines = new List<string>();

@@ -147,28 +147,26 @@ if ($go) {
   Pop-Location
   $exeSrc = $built
 } else {
-  $candidates = @(
-    (Join-Path $Root "netodrive-sync.exe"),
-    (Join-Path $Repo "dist\netodrive-sync.exe"),
-    (Join-Path $InstallDir "netodrive-sync.exe")
-  )
-  foreach ($c in $candidates) {
-    if (Test-Path $c) {
-      $exeSrc = $c
-      break
-    }
-  }
-  if (-not $exeSrc) {
+  $embedded = Join-Path $Root "netodrive-sync.exe"
+  $dist = Join-Path $Repo "dist\netodrive-sync.exe"
+  if (Test-Path $embedded) {
+    $exeSrc = $embedded
+  } elseif (Test-Path $dist) {
+    $exeSrc = $dist
+  } else {
     throw @"
-netodrive-sync.exe nao encontrado.
+netodrive-sync.exe nao encontrado no repositorio.
 
 Opcoes:
-1) Instale Go (https://go.dev/dl/) e rode Install-NetoDrive.ps1 de novo
-2) git pull  (traz netodrive-sync.exe atualizado em clients\desktop\windows\)
+1) git pull origin main
+2) Instale Go (https://go.dev/dl/) e rode Install-NetoDrive.ps1 de novo
 "@
   }
   Write-Host "AVISO: Go nao instalado - usando netodrive-sync.exe embarcado." -ForegroundColor Yellow
-  Write-Host "  Se local_folder for ignorado, instale Go e rode Install de novo." -ForegroundColor Yellow
+  $srcVer = & $exeSrc -version 2>&1 | Select-Object -First 1
+  if ($srcVer) {
+    Write-Host "  Binario embarcado: $srcVer"
+  }
 }
 
 Write-Host "Usando: $exeSrc"
@@ -176,6 +174,14 @@ Copy-Item $exeSrc (Join-Path $InstallDir "netodrive-sync.exe") -Force
 $verOut = & (Join-Path $InstallDir "netodrive-sync.exe") -version 2>&1 | Select-Object -First 1
 if ($verOut) {
   Write-Host "Versao instalada: $verOut"
+  if ($verOut -match 'fast-path-cfapi-v(\d+)' -and [int]$Matches[1] -lt 11) {
+    Write-Host ""
+    Write-Host "ERRO: binario antigo ($verOut). Rode:" -ForegroundColor Red
+    Write-Host "  cd $Repo" -ForegroundColor Yellow
+    Write-Host "  git pull origin main" -ForegroundColor Yellow
+    Write-Host "  .\clients\desktop\windows\Install-NetoDrive.ps1" -ForegroundColor Yellow
+    throw "Atualize o repositorio para obter fast-path-cfapi-v11 ou superior."
+  }
 } else {
   Write-Host "AVISO: exe sem flag -version (binario antigo). Instale Go e rode Install de novo." -ForegroundColor Yellow
 }

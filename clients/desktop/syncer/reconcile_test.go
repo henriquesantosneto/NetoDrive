@@ -52,26 +52,53 @@ func TestPlanSyncNewRemoteFile(t *testing.T) {
 	}
 }
 
-func TestPlanSyncCFAPIRematerializeMissing(t *testing.T) {
-	local := map[string]string{}
-	remote := map[string]string{"doc.txt": "aaa"}
-	known := map[string]string{"doc.txt": "aaa"}
-
-	p := planSync(local, remote, known, PlanSyncOptions{RematerializeMissing: true})
-	if len(p.download) != 1 || p.download[0] != "doc.txt" {
-		t.Fatalf("expected rematerialize download, got %#v", p)
+func TestPlanSyncCFAPIRematerializeWithMeta(t *testing.T) {
+	root := t.TempDir()
+	if err := writePlaceholderMeta(root, "doc.txt", placeholderMeta{Hash: "aaa", Size: 3}); err != nil {
+		t.Fatal(err)
 	}
-	if len(p.deleteRemote) != 0 {
-		t.Fatalf("should not delete remote when rematerializing: %#v", p)
-	}
-}
-
-func TestPlanSyncCFAPIPendingDeleteStillDeletesRemote(t *testing.T) {
 	local := map[string]string{}
 	remote := map[string]string{"doc.txt": "aaa"}
 	known := map[string]string{"doc.txt": "aaa"}
 
 	p := planSync(local, remote, known, PlanSyncOptions{
+		LocalRoot:            root,
+		RematerializeMissing: true,
+	})
+	if len(p.download) != 1 || p.download[0] != "doc.txt" {
+		t.Fatalf("expected rematerialize download, got %#v", p)
+	}
+	if len(p.deleteRemote) != 0 {
+		t.Fatalf("should not delete remote when meta pending: %#v", p)
+	}
+}
+
+func TestPlanSyncCFAPIDeleteWhenKnownAbsentNoMeta(t *testing.T) {
+	root := t.TempDir()
+	local := map[string]string{}
+	remote := map[string]string{"doc.txt": "aaa"}
+	known := map[string]string{"doc.txt": "aaa"}
+
+	p := planSync(local, remote, known, PlanSyncOptions{
+		LocalRoot:            root,
+		RematerializeMissing: true,
+	})
+	if len(p.deleteRemote) != 1 || p.deleteRemote[0] != "doc.txt" {
+		t.Fatalf("expected remote delete without meta, got %#v", p)
+	}
+	if len(p.download) != 0 {
+		t.Fatalf("should not rematerialize without meta sidecar: %#v", p)
+	}
+}
+
+func TestPlanSyncCFAPIPendingDeleteStillDeletesRemote(t *testing.T) {
+	root := t.TempDir()
+	local := map[string]string{}
+	remote := map[string]string{"doc.txt": "aaa"}
+	known := map[string]string{"doc.txt": "aaa"}
+
+	p := planSync(local, remote, known, PlanSyncOptions{
+		LocalRoot:            root,
 		RematerializeMissing: true,
 		PendingLocalDeletes:  map[string]bool{"doc.txt": true},
 	})

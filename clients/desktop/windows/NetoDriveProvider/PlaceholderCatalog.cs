@@ -15,14 +15,19 @@ internal static class PlaceholderCatalog
 
     internal static IEnumerable<PlaceholderQueueEntry> AllKnown(AppConfig cfg)
     {
+        var pendingDeletes = LocalChangesQueue.ReadAll(cfg);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in ReadMetaStore(cfg))
         {
+            if (pendingDeletes.Contains(entry.Rel))
+                continue;
             if (seen.Add(entry.Rel))
                 yield return entry;
         }
         foreach (var entry in PlaceholderQueue.PeekPending(cfg))
         {
+            if (pendingDeletes.Contains(entry.Rel))
+                continue;
             if (seen.Add(entry.Rel))
                 yield return entry;
         }
@@ -56,6 +61,31 @@ internal static class PlaceholderCatalog
                 result.Add(entry);
         }
         return result;
+    }
+
+    internal static void RemoveMeta(AppConfig cfg, string rel)
+    {
+        rel = rel.Replace('\\', '/').Trim('/');
+        if (string.IsNullOrEmpty(rel))
+            return;
+        var key = MetaKeyFromRel(rel);
+        var path = Path.Combine(MetaStoreRoot(cfg), key + ".json");
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch (IOException ex)
+        {
+            Console.Error.WriteLine($"remove meta {rel}: {ex.Message}");
+        }
+    }
+
+    private static string MetaKeyFromRel(string rel)
+    {
+        if (rel.Length == 0)
+            return "_root";
+        return rel.Replace('\\', '/').Replace("/", "__");
     }
 
     private static IEnumerable<PlaceholderQueueEntry> ReadMetaStore(AppConfig cfg)

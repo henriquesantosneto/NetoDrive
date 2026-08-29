@@ -48,6 +48,20 @@ func TestPlaceholderUpToDateQueued(t *testing.T) {
 	}
 }
 
+func TestPlaceholderQueueRemoveRel(t *testing.T) {
+	syncRoot := t.TempDir()
+	meta := placeholderMeta{Hash: "abc", Size: 1}
+	if err := enqueuePlaceholder(syncRoot, "a.txt", meta); err != nil {
+		t.Fatal(err)
+	}
+	if err := removePlaceholderQueueRel(syncRoot, "a.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if isPlaceholderQueuedRel(syncRoot, "a.txt") {
+		t.Fatal("queue entry should be removed")
+	}
+}
+
 func stringsHasPrefix(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }

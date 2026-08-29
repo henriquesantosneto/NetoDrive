@@ -9,11 +9,14 @@ import (
 	"testing"
 )
 
-func TestTryQuickSyncSkipsWhenRemoteFileMissingLocally(t *testing.T) {
+func TestTryQuickSyncSkipsWhenPlaceholderMetaPending(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "sync-state.json")
 	localRoot := filepath.Join(dir, "data")
 	if err := os.MkdirAll(localRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePlaceholderMeta(localRoot, "file.bin", placeholderMeta{Hash: "abc", Size: 10}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -51,6 +54,6 @@ func TestTryQuickSyncSkipsWhenRemoteFileMissingLocally(t *testing.T) {
 		t.Fatal(err)
 	}
 	if ok {
-		t.Fatal("expected full sync when remote file is not materialized locally")
+		t.Fatal("expected full sync when placeholder meta exists but file is absent")
 	}
 }

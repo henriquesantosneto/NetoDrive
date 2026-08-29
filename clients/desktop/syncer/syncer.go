@@ -323,6 +323,19 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		syncLog("sync: manifest igual mas arquivos remotos precisam materializar")
 	}
 
+	if HasPendingLocalChanges(localRoot) {
+		syncLog("sync: aplicando deletes locais pendentes...")
+		if err := applyPendingLocalDeletes(c, localRoot, remotePrefix, map[string]string{}, &st); err != nil {
+			return err
+		}
+		man, err = c.Manifest()
+		if err != nil {
+			return err
+		}
+		fp = manifestFingerprint(man)
+		syncLog("sync: manifest atualizado (%d entradas)", len(man.Files))
+	}
+
 	syncLog("sync: aplicando changes remotos...")
 	newCursor, err := applyRemoteChanges(c, localRoot, st.ChangeCursor)
 	if err != nil {
@@ -450,6 +463,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 
 	pendingDeletes, _ := PendingLocalDeleteSet(localRoot)
 	plan := planSync(local, remoteHashes, st.Known, PlanSyncOptions{
+		LocalRoot:            localRoot,
 		RematerializeMissing: cfapiProviderActive(),
 		PendingLocalDeletes:  pendingDeletes,
 	})
@@ -477,6 +491,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		if remotePath != rel {
 			_ = c.Delete(rel)
 		}
+		removePlatformPlaceholder(localRoot, rel)
 		delete(remote, rel)
 		delete(st.Known, rel)
 		delete(st.Entries, rel)

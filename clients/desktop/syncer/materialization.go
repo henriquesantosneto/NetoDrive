@@ -26,7 +26,7 @@ func indexMetaStorePresent(localRoot string) map[string]string {
 	return out
 }
 
-// remoteFilesNeedMaterialization reports remote files that should exist locally but do not.
+// remoteFilesNeedMaterialization reports remote files that still need placeholder creation.
 func remoteFilesNeedMaterialization(localRoot string, man *Manifest) bool {
 	if man == nil {
 		return false
@@ -46,7 +46,9 @@ func remoteFilesNeedMaterialization(localRoot string, man *Manifest) bool {
 		if localFilePresentInSyncRoot(localRoot, rel) {
 			continue
 		}
-		return true
+		if shouldRematerializePlaceholder(localRoot, rel, pending) {
+			return true
+		}
 	}
 	return false
 }

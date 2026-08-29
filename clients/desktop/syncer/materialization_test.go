@@ -8,13 +8,28 @@ import (
 
 func TestRemoteFilesNeedMaterializationMissingFile(t *testing.T) {
 	root := t.TempDir()
+	if err := writePlaceholderMeta(root, "web-only.txt", placeholderMeta{Hash: "abc", Size: 3}); err != nil {
+		t.Fatal(err)
+	}
 	man := &Manifest{
 		Files: []ManifestEntry{
 			{Path: "web-only.txt", Hash: "abc", Size: 3},
 		},
 	}
 	if !remoteFilesNeedMaterialization(root, man) {
-		t.Fatal("expected materialization when remote file is absent locally")
+		t.Fatal("expected materialization when meta exists but file is absent")
+	}
+}
+
+func TestRemoteFilesNeedMaterializationKnownAbsentNoMeta(t *testing.T) {
+	root := t.TempDir()
+	man := &Manifest{
+		Files: []ManifestEntry{
+			{Path: "gone.txt", Hash: "abc", Size: 3},
+		},
+	}
+	if remoteFilesNeedMaterialization(root, man) {
+		t.Fatal("should not materialize known-absent file without meta sidecar")
 	}
 }
 
