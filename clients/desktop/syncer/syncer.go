@@ -55,7 +55,7 @@ func NewClient(baseURL, token, deviceID string) *Client {
 
 func newSyncHTTPClient() *http.Client {
 	dialer := &net.Dialer{
-		Timeout:   30 * time.Second,
+		Timeout:   5 * time.Second,
 		KeepAlive: 30 * time.Second,
 	}
 	return &http.Client{
@@ -253,11 +253,20 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	}
 	st.OnDemand = onDemand
 
+	if err := c.Ping(); err != nil {
+		return fmt.Errorf("servidor indisponivel (%s): %w", c.BaseURL, err)
+	}
+
 	newCursor, err := applyRemoteChanges(c, localRoot, st.ChangeCursor)
 	if err != nil {
-		return fmt.Errorf("apply changes: %w", err)
+		if IsConnectionError(err) {
+			fmt.Fprintf(os.Stderr, "aviso: feed de changes indisponivel: %v\n", err)
+		} else {
+			return fmt.Errorf("apply changes: %w", err)
+		}
+	} else {
+		st.ChangeCursor = newCursor
 	}
-	st.ChangeCursor = newCursor
 
 	man, err := c.Manifest()
 	if err != nil {
@@ -424,9 +433,14 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 
 	newCursor, err = applyRemoteChanges(c, localRoot, st.ChangeCursor)
 	if err != nil {
-		return fmt.Errorf("apply changes after sync: %w", err)
+		if IsConnectionError(err) {
+			fmt.Fprintf(os.Stderr, "aviso: feed de changes (pos-sync) indisponivel: %v\n", err)
+		} else {
+			return fmt.Errorf("apply changes after sync: %w", err)
+		}
+	} else {
+		st.ChangeCursor = newCursor
 	}
-	st.ChangeCursor = newCursor
 
 	return SaveState(statePath, st)
 }

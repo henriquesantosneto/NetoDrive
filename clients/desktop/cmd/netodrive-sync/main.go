@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +31,11 @@ type Config struct {
 	// remote_prefix is ignored (legacy); all devices share the account root tree.
 	RemotePrefixLegacy string `json:"remote_prefix,omitempty"`
 }
+
+var (
+	syncMu      sync.Mutex
+	syncRunning bool
+)
 
 func onDemandEnabled(cfg Config) bool {
 	if cfg.OnDemand == nil {
@@ -121,6 +127,11 @@ func main() {
 		fatal(err)
 	}
 
+	if err := client.Ping(); err != nil {
+		fmt.Fprintf(os.Stderr, "AVISO: servidor offline em %s (%v)\n", cfg.ServerURL, err)
+		fmt.Fprintf(os.Stderr, "  Sync falha ate o servidor subir. Edite server_url em %s\n", *cfgPath)
+	}
+
 	statePath := syncer.DefaultStatePath(*cfgPath)
 
 	if *pinPath != "" {
@@ -166,13 +177,24 @@ func main() {
 	}
 
 	run := func() error {
+		syncMu.Lock()
+		if syncRunning {
+			syncMu.Unlock()
+			return fmt.Errorf("sync ja em andamento")
+		}
+		syncRunning = true
+		syncMu.Unlock()
+		defer func() {
+			syncMu.Lock()
+			syncRunning = false
+			syncMu.Unlock()
+		}()
+
 		fmt.Printf("[%s] syncing %s ↔ arvore da conta (raiz)\n", time.Now().Format(time.RFC3339), cfg.LocalFolder)
 		if err := syncer.SyncFolder(client, cfg.LocalFolder, statePath, onDemand); err != nil {
-			msg := err.Error()
-			if strings.Contains(msg, "connection refused") || strings.Contains(msg, "no such host") ||
-				strings.Contains(msg, "timeout") || strings.Contains(msg, "context deadline exceeded") {
+			if syncer.IsConnectionError(err) {
 				fmt.Fprintf(os.Stderr, "sync error: servidor inacessivel (%s): %v\n", cfg.ServerURL, err)
-				fmt.Fprintf(os.Stderr, "  Confira server_url em %s e se o servidor NetoDrive esta online.\n", *cfgPath)
+				fmt.Fprintf(os.Stderr, "  Inicie o servidor NetoDrive ou corrija server_url em %s\n", *cfgPath)
 			} else {
 				fmt.Fprintf(os.Stderr, "sync error: %v\n", err)
 			}
@@ -207,13 +229,19 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 		_, _ = w.Write([]byte(controlPanelHTML(cfg, onDemand)))
 	})
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		serverOK := client.Ping() == nil
+		syncMu.Lock()
+		running := syncRunning
+		syncMu.Unlock()
 		writeJSON(w, map[string]any{
-			"server_url":   cfg.ServerURL,
-			"local_folder": cfg.LocalFolder,
-			"interval_sec": cfg.IntervalSec,
-			"on_demand":    onDemand,
-			"web_url":      cfg.ServerURL,
-			"remote_tree":  "arvore da conta (raiz)",
+			"server_url":    cfg.ServerURL,
+			"local_folder":  cfg.LocalFolder,
+			"interval_sec":  cfg.IntervalSec,
+			"on_demand":     onDemand,
+			"web_url":       cfg.ServerURL,
+			"remote_tree":   "arvore da conta (raiz)",
+			"server_online": serverOK,
+			"sync_running":  running,
 		})
 	})
 	mux.HandleFunc("/api/hydrate", func(w http.ResponseWriter, r *http.Request) {
@@ -302,7 +330,9 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 		t := time.NewTicker(time.Duration(cfg.IntervalSec) * time.Second)
 		defer t.Stop()
 		for range t.C {
-			_ = run()
+			if err := run(); err != nil && strings.Contains(err.Error(), "sync ja em andamento") {
+				continue
+			}
 		}
 	}()
 
@@ -337,12 +367,16 @@ button:hover{filter:brightness(.96)}
 .kv{margin-top:16px;display:grid;gap:8px}.kv div{display:grid;grid-template-columns:140px 1fr;gap:8px;font-size:.92rem}
 .kv b{color:var(--muted);font-weight:600}
 #msg{margin-top:12px;min-height:1.2em}
+#srv{margin-top:12px;padding:10px;border-radius:4px;font-size:.92rem}
+#srv.ok{background:#dff6dd;border:1px solid #107c10}
+#srv.bad{background:#fde7e9;border:1px solid #a80000}
 </style></head><body>
 <div class="top"><div class="mark">N</div>NetoDrive — Sincronização</div>
 <div class="wrap"><div class="card">
 <h1>Seus arquivos neste PC</h1>
 <p class="muted">` + mode + `</p>
 <p class="muted">Pasta local espelhada na <strong>arvore principal da conta</strong> — a mesma vista da web e do Android.</p>
+<div id="srv" class="bad">Verificando servidor…</div>
 <div class="kv">
 <div><b>Servidor</b><span>` + cfg.ServerURL + `</span></div>
 <div><b>Pasta local</b><span>` + cfg.LocalFolder + `</span></div>
@@ -363,14 +397,29 @@ button:hover{filter:brightness(.96)}
 <p id="msg" class="muted"></p>
 </div></div>
 <script>
-async function post(url){const r=await fetch(url,{method:'POST'});const j=await r.json();return j}
+async function post(url,opts){const r=await fetch(url,Object.assign({method:'POST'},opts||{}));return r.json()}
 async function act(url){const m=document.getElementById('msg');const path=document.getElementById('path').value.trim();
 if(!path){m.textContent='Informe um caminho.';return}
 const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
 const j=await r.json();m.textContent=j.ok?'OK.':('Erro: '+j.error)}
-async function syncNow(){const m=document.getElementById('msg');m.textContent='Sincronizando…';
-try{const j=await post('/api/sync');m.textContent=j.ok?'Sincronização concluída.':('Erro: '+j.error)}
-catch(e){m.textContent=String(e)}}
+async function syncNow(){
+const m=document.getElementById('msg');const btn=document.querySelector('button');
+m.textContent='Sincronizando…';if(btn)btn.disabled=true;
+try{
+const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),120000);
+const j=await post('/api/sync',{signal:ctl.signal});clearTimeout(t);
+m.textContent=j.ok?'Sincronizacao concluida.':('Erro: '+(j.error||'falhou'));
+}catch(e){m.textContent=(e&&e.name==='AbortError')?'Tempo esgotado (2 min). Veja o console.':String(e)}
+finally{if(btn)btn.disabled=false;refreshServer()}}
+async function refreshServer(){
+const el=document.getElementById('srv');
+try{
+const s=await fetch('/api/status').then(r=>r.json());
+if(s.server_online){el.className='ok';el.textContent='Servidor online: '+s.server_url}
+else{el.className='bad';el.textContent='Servidor OFFLINE em '+s.server_url+' — inicie o NetoDrive server ou corrija server_url no netodrive.json'}
+if(s.sync_running)el.textContent+=' (sync em andamento)';
+}catch(e){el.className='bad';el.textContent='Nao foi possivel verificar o servidor.'}}
+refreshServer();setInterval(refreshServer,15000);
 </script></body></html>`
 }
 
