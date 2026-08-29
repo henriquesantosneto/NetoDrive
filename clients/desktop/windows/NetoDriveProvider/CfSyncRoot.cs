@@ -54,7 +54,6 @@ internal static class CfSyncRoot
             },
             InSync = CF_INSYNC_POLICY.CF_INSYNC_POLICY_NONE,
             HardLink = CF_HARDLINK_POLICY.CF_HARDLINK_POLICY_NONE,
-            PlaceholderManagement = CF_PLACEHOLDER_MANAGEMENT_POLICY.CF_PLACEHOLDER_MANAGEMENT_POLICY_DEFAULT,
         };
 
         var hr = CfRegisterSyncRoot(localFolder, reg, pol, CF_REGISTER_FLAGS.CF_REGISTER_FLAG_NONE);

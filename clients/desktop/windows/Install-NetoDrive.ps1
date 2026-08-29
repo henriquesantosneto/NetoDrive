@@ -117,10 +117,14 @@ if ($dotnet) {
     if (Test-Path $providerExe) {
       Get-Process netodrive-provider -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
       Start-Sleep -Seconds 2
-      & $providerExe -unregister -config $cfg 2>$null
+      $prevEA = $ErrorActionPreference
+      $ErrorActionPreference = 'Continue'
+      & $providerExe -unregister -config $cfg 2>$null | Out-Null
       $regOut = & $providerExe -register -config $cfg 2>&1
+      $regExit = $LASTEXITCODE
+      $ErrorActionPreference = $prevEA
       $regOut | ForEach-Object { Write-Host $_ }
-      if ($LASTEXITCODE -ne 0) {
+      if ($regExit -ne 0) {
         Write-Host ""
         Write-Host "AVISO: registro CFAPI falhou (codigo $LASTEXITCODE)." -ForegroundColor Yellow
         Write-Host "  Feche o Explorer, encerre netodrive-provider e tente:" -ForegroundColor Yellow
