@@ -84,7 +84,7 @@ Opcoes:
 2) git pull  (traz netodrive-sync.exe atualizado em clients\desktop\windows\)
 "@
   }
-  Write-Host "AVISO: Go nao instalado — usando netodrive-sync.exe embarcado." -ForegroundColor Yellow
+  Write-Host "AVISO: Go nao instalado - usando netodrive-sync.exe embarcado." -ForegroundColor Yellow
   Write-Host "  Se local_folder for ignorado, instale Go e rode Install de novo." -ForegroundColor Yellow
 }
 
@@ -134,8 +134,8 @@ if ($dotnet) {
           $regOut | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
         }
         Write-Host "  Feche o Explorer, encerre netodrive-provider e tente:" -ForegroundColor Yellow
-        Write-Host "    & '$providerExe' -unregister -config '$cfg'" -ForegroundColor Yellow
-        Write-Host "    & '$providerExe' -register -config '$cfg'" -ForegroundColor Yellow
+        Write-Host ('  {0} -unregister -config "{1}"' -f $providerExe, $cfg) -ForegroundColor Yellow
+        Write-Host ('  {0} -register -config "{1}"' -f $providerExe, $cfg) -ForegroundColor Yellow
         Write-Host "  Causa comum: local_folder com barra simples no JSON." -ForegroundColor Yellow
         Write-Host "  Use barras duplas ou normais:" -ForegroundColor Yellow
         Write-Host '    "local_folder": "C:\\Users\\henri\\NetoDrive"' -ForegroundColor Yellow
@@ -211,4 +211,4 @@ Write-Host "Instalado em $InstallDir"
 Write-Host "Pasta de sync (local_folder): $localFolder"
 Write-Host "Atalho pasta: $folderShortcut"
 Write-Host "Atalho app:   $appShortcut"
-Write-Host "Inicie pelo atalho NetoDrive Sync ou NetoDrive (pasta)."
+Write-Host 'Inicie pelo atalho NetoDrive Sync ou NetoDrive (pasta).'
