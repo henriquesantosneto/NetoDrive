@@ -30,7 +30,7 @@ internal sealed class AppConfig
 
 internal static class Paths
 {
-    internal static readonly Guid ProviderId = new("8F3E2A1B-4C5D-9E6F-A1B2C3D4E5F6");
+    internal static readonly Guid ProviderId = new("8F3E2A1B-4C5D-9E6F-A1B2-C3D4E5F67890");
     internal static string ConfigPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "NetoDrive",

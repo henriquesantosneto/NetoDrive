@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="SharpShell" Version="2.7.2" />
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
 </Project>

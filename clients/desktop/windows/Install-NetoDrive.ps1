@@ -75,7 +75,13 @@ if ($dotnet) {
     dotnet publish -c Release -r win-x64 --self-contained false -o $InstallDir
     if ($LASTEXITCODE -ne 0) { Pop-Location; throw "Falha ao compilar netodrive-provider" }
     Pop-Location
-    & (Join-Path $InstallDir "netodrive-provider.exe") -register -config $cfg
+    $providerExe = Join-Path $InstallDir "netodrive-provider.exe"
+    if (Test-Path $providerExe) {
+      & $providerExe -register -config $cfg
+      if ($LASTEXITCODE -ne 0) {
+        Write-Host "AVISO: registro do sync root falhou (codigo $LASTEXITCODE). Verifique local_folder em $cfg"
+      }
+    }
   }
   if (Test-Path $shellDir) {
     Push-Location $shellDir
