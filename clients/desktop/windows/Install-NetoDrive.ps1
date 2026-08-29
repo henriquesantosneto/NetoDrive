@@ -126,7 +126,11 @@ if ($dotnet) {
       $regOut | ForEach-Object { Write-Host $_ }
       if ($regExit -ne 0) {
         Write-Host ""
-        Write-Host "AVISO: registro CFAPI falhou (codigo $LASTEXITCODE)." -ForegroundColor Yellow
+        Write-Host "AVISO: registro CFAPI falhou (codigo $regExit)." -ForegroundColor Yellow
+        if ($regOut) {
+          Write-Host "  Detalhe:" -ForegroundColor Yellow
+          $regOut | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+        }
         Write-Host "  Feche o Explorer, encerre netodrive-provider e tente:" -ForegroundColor Yellow
         Write-Host "    & '$providerExe' -unregister -config '$cfg'" -ForegroundColor Yellow
         Write-Host "    & '$providerExe' -register -config '$cfg'" -ForegroundColor Yellow

@@ -25,6 +25,12 @@ internal static class CfSyncRoot
 
     internal static void Register(string localFolder, string syncRootId)
     {
+        if (IsRegistered(localFolder))
+        {
+            Console.WriteLine($"CFAPI: sync root ja registrado em {localFolder}");
+            return;
+        }
+
         var identity = Encoding.UTF8.GetBytes(syncRootId);
         using var identityMem = new SafeCoTaskMemHandle(identity);
 
@@ -63,8 +69,21 @@ internal static class CfSyncRoot
         }
         if (hr.Failed)
         {
-            throw new InvalidOperationException(
-                $"CfRegisterSyncRoot falhou em {localFolder}: {HrMessage(hr)}");
+            Console.Error.WriteLine(
+                $"Aviso: CfRegisterSyncRoot({localFolder}): {HrMessage(hr)} — WinRT pode registrar sozinho.");
+        }
+    }
+
+    /// <summary>Tenta registrar CFAPI; usado pelo provider -run se WinRT ja registrou mas CF falta.</summary>
+    internal static void TryRegister(string localFolder, string syncRootId)
+    {
+        try
+        {
+            Register(localFolder, syncRootId);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Aviso CFAPI: {ex.Message}");
         }
     }
 

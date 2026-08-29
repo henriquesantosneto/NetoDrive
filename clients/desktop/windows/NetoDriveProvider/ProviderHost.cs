@@ -46,7 +46,18 @@ internal sealed class ProviderHost : IDisposable
             CF_CONNECT_FLAGS.CF_CONNECT_FLAG_REQUIRE_FULL_FILE_PATH,
             out _connection);
         if (hr.Failed)
-            throw new InvalidOperationException($"CfConnectSyncRoot: {hr}");
+        {
+            CfSyncRoot.TryRegister(_cfg.LocalFolder, Paths.SyncRootId);
+            hr = CfConnectSyncRoot(
+                _cfg.LocalFolder,
+                callbacks,
+                IntPtr.Zero,
+                CF_CONNECT_FLAGS.CF_CONNECT_FLAG_REQUIRE_FULL_FILE_PATH,
+                out _connection);
+        }
+        if (hr.Failed)
+            throw new InvalidOperationException(
+                $"CfConnectSyncRoot({_cfg.LocalFolder}): {CfSyncRoot.HrMessage(hr)}");
         _connected = true;
     }
 

@@ -6,7 +6,7 @@ using Windows.Storage.Streams;
 namespace NetoDriveProvider;
 
 /// <summary>
-/// Registra a pasta de sync no Windows (CFAPI + Explorer nativo).
+/// Registra a pasta de sync no Windows (Explorer nativo via WinRT; CFAPI no -run).
 /// </summary>
 internal static class SyncRootRegistrar
 {
@@ -15,6 +15,7 @@ internal static class SyncRootRegistrar
         SyncRootCleanup.ValidatePath(cfg.LocalFolder);
         CfSyncRoot.StopProviderProcesses();
         SyncRootCleanup.DeepUnregister(cfg.LocalFolder);
+        Thread.Sleep(1500);
 
         Directory.CreateDirectory(cfg.LocalFolder);
 
@@ -24,8 +25,6 @@ internal static class SyncRootRegistrar
         if (!string.IsNullOrWhiteSpace(rawJson))
             Console.WriteLine($"local_folder (JSON): {rawJson}");
         Console.WriteLine($"local_folder (Explorer): {cfg.LocalFolder}");
-
-        CfSyncRoot.Register(cfg.LocalFolder, syncRootId);
 
         var folder = StorageFolder.GetFolderFromPathAsync(cfg.LocalFolder).AsTask().GetAwaiter().GetResult();
         var iconExe = Path.Combine(AppContext.BaseDirectory, "netodrive-sync.exe");
@@ -40,6 +39,7 @@ internal static class SyncRootRegistrar
             ? $"{iconExe},0"
             : "%SystemRoot%\\system32\\imageres.dll,1043";
 
+        var onDemand = cfg.OnDemand;
         var info = new StorageProviderSyncRootInfo
         {
             Id = syncRootId,
@@ -52,22 +52,30 @@ internal static class SyncRootRegistrar
             HardlinkPolicy = StorageProviderHardlinkPolicy.None,
             HydrationPolicy = StorageProviderHydrationPolicy.Full,
             HydrationPolicyModifier = StorageProviderHydrationPolicyModifier.None,
-            PopulationPolicy = StorageProviderPopulationPolicy.AlwaysFull,
+            PopulationPolicy = onDemand
+                ? StorageProviderPopulationPolicy.Full
+                : StorageProviderPopulationPolicy.AlwaysFull,
             InSyncPolicy = StorageProviderInSyncPolicy.FileCreationTime | StorageProviderInSyncPolicy.DirectoryCreationTime,
             Version = "1.0.0",
             RecycleBinUri = new Uri("https://netodrive.local/recyclebin"),
             Context = CryptographicBuffer.ConvertStringToBinary(syncRootId, BinaryStringEncoding.Utf8),
         };
 
+        Console.WriteLine("Registrando no Explorer (WinRT)...");
         try
         {
             StorageProviderSyncRootManager.Register(info);
         }
         catch (Exception ex)
         {
+            var hr = ex.HResult;
             throw new InvalidOperationException(
-                $"StorageProviderSyncRootManager.Register falhou para {cfg.LocalFolder}: {ex.Message}\n" +
-                "Feche todas as janelas do Explorer e encerre netodrive-provider.exe, depois rode -unregister e -register.",
+                $"StorageProviderSyncRootManager.Register falhou para {cfg.LocalFolder}.\n" +
+                $"  Erro: {ex.Message}\n" +
+                (hr != 0 ? $"  HRESULT: 0x{hr & 0xFFFFFFFF:X8}\n" : "") +
+                "  Feche todas as janelas do Explorer, encerre netodrive-provider.exe,\n" +
+                "  depois: netodrive-provider.exe -unregister -config \"%APPDATA%\\NetoDrive\\netodrive.json\"\n" +
+                "          netodrive-provider.exe -register -config \"%APPDATA%\\NetoDrive\\netodrive.json\"",
                 ex);
         }
 

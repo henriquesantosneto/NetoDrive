@@ -74,9 +74,12 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine(ex);
-            if (ex is System.Runtime.InteropServices.COMException com)
-                Console.Error.WriteLine($"HRESULT: 0x{com.HResult & 0xFFFFFFFF:X8}");
+            for (Exception? e = ex; e != null; e = e.InnerException)
+            {
+                Console.Error.WriteLine(e.Message);
+                if (e is System.Runtime.InteropServices.COMException com)
+                    Console.Error.WriteLine($"HRESULT: 0x{com.HResult & 0xFFFFFFFF:X8}");
+            }
             return 1;
         }
     }
