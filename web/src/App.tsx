@@ -1,5 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 import {
+  bulkDelete,
+  bulkDownload,
+  bulkPurge,
+  bulkRestore,
   clearToken,
   createDir,
   deleteFile,
@@ -105,11 +109,34 @@ function Drive({ onLogout }: { onLogout: () => void }) {
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [pending, start] = useTransition();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  function clearSelection() {
+    setSelected(new Set());
+  }
+
+  function toggleSelect(p: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p);
+      else next.add(p);
+      return next;
+    });
+  }
+
+  function toggleSelectAll(items: FileMeta[]) {
+    setSelected((prev) => {
+      const allSelected = items.length > 0 && items.every((f) => prev.has(f.path));
+      if (allSelected) return new Set();
+      return new Set(items.map((f) => f.path));
+    });
+  }
 
   function refresh(nextPath = path) {
     start(async () => {
       try {
         setError("");
+        clearSelection();
         if (view === "gallery") {
           const res = await listGallery(120, 0);
           setFiles(res.items);
@@ -203,9 +230,57 @@ function Drive({ onLogout }: { onLogout: () => void }) {
     }
   }
 
+  async function onBulkDelete() {
+    const paths = [...selected];
+    if (!paths.length) return;
+    if (!window.confirm(`Mover ${paths.length} item(ns) para a lixeira?`)) return;
+    try {
+      await bulkDelete(paths);
+      refresh(path);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha na exclusao em massa");
+    }
+  }
+
+  async function onBulkDownload() {
+    const paths = [...selected];
+    if (!paths.length) return;
+    try {
+      setError("");
+      await bulkDownload(paths);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha no download");
+    }
+  }
+
+  async function onBulkRestore() {
+    const paths = [...selected];
+    if (!paths.length) return;
+    try {
+      await bulkRestore(paths);
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao restaurar");
+    }
+  }
+
+  async function onBulkPurge() {
+    const paths = [...selected];
+    if (!paths.length) return;
+    if (!window.confirm(`Excluir definitivamente ${paths.length} item(ns)?`)) return;
+    try {
+      await bulkPurge(paths);
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao excluir");
+    }
+  }
+
   const crumbs = path ? path.split("/") : [];
   const title =
     view === "gallery" ? "Galeria" : view === "trash" ? "Lixeira" : path ? crumbs[crumbs.length - 1] : "Meus arquivos";
+  const selectedCount = selected.size;
+  const allFilteredSelected = filtered.length > 0 && filtered.every((f) => selected.has(f.path));
 
   return (
     <div className="shell">
@@ -356,6 +431,33 @@ function Drive({ onLogout }: { onLogout: () => void }) {
               Esvaziar lixeira
             </button>
           ) : null}
+          {selectedCount > 0 ? (
+            <div className="bulk-bar">
+              <span className="muted">{selectedCount} selecionado(s)</span>
+              {view === "trash" ? (
+                <>
+                  <button className="btn secondary" onClick={() => void onBulkRestore()}>
+                    Restaurar
+                  </button>
+                  <button className="btn danger" onClick={() => void onBulkPurge()}>
+                    Excluir definitivo
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="btn secondary" onClick={() => void onBulkDownload()}>
+                    Baixar ZIP
+                  </button>
+                  <button className="btn danger" onClick={() => void onBulkDelete()}>
+                    Excluir
+                  </button>
+                </>
+              )}
+              <button className="btn ghost" onClick={clearSelection}>
+                Limpar
+              </button>
+            </div>
+          ) : null}
           <button className="btn secondary" onClick={() => refresh(path)} disabled={pending}>
             Atualizar
           </button>
@@ -376,6 +478,14 @@ function Drive({ onLogout }: { onLogout: () => void }) {
             <table>
               <thead>
                 <tr>
+                  <th className="col-check">
+                    <input
+                      type="checkbox"
+                      checked={allFilteredSelected}
+                      onChange={() => toggleSelectAll(filtered)}
+                      aria-label="Selecionar todos"
+                    />
+                  </th>
                   <th>Nome</th>
                   <th>Modificado</th>
                   <th>Tamanho</th>
@@ -384,7 +494,15 @@ function Drive({ onLogout }: { onLogout: () => void }) {
               </thead>
               <tbody>
                 {filtered.map((f) => (
-                  <tr key={f.id}>
+                  <tr key={f.id} className={selected.has(f.path) ? "selected" : undefined}>
+                    <td className="col-check">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(f.path)}
+                        onChange={() => toggleSelect(f.path)}
+                        aria-label={`Selecionar ${f.name}`}
+                      />
+                    </td>
                     <td>
                       <div className="file-name-cell">
                         <span className={`icon-tile ${tileClass(f)}`}>{tileLabel(f)}</span>

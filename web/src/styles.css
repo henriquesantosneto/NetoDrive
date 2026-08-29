@@ -440,8 +440,36 @@ a {
   opacity: 0;
 }
 
-.file-table tr:hover .row-actions {
+.file-table tr:hover .row-actions,
+.file-table tr.selected .row-actions {
   opacity: 1;
+}
+
+.file-table tr.selected td {
+  background: var(--od-blue-soft);
+}
+
+.col-check {
+  width: 40px;
+  padding-left: 1rem !important;
+  padding-right: 0 !important;
+}
+
+.col-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--od-blue);
+  cursor: pointer;
+}
+
+.bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--od-blue-soft);
+  border-radius: 2px;
 }
 
 .empty {

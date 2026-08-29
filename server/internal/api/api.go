@@ -46,6 +46,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/gallery/sync", s.withAuth(s.handleGallerySync))
 	mux.HandleFunc("/api/trash", s.withAuth(s.handleTrash))
 	mux.HandleFunc("/api/trash/", s.withAuth(s.handleTrashItem))
+	s.registerBulkRoutes(mux)
 
 	// Static web UI (optional)
 	exeDir := ""

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -496,13 +497,89 @@ func (s *Store) EmptyTrash(userID int64) (int, error) {
 	return n, nil
 }
 
-func (s *Store) maybeRemoveBlob(hash string) {
-	var n int
-	err := s.DB.QueryRow(`SELECT COUNT(*) FROM files WHERE hash=? AND deleted=0`, hash).Scan(&n)
-	if err != nil || n > 0 {
-		return
+func (s *Store) SoftDeleteMany(userID int64, paths []string) (int, error) {
+	n := 0
+	for _, p := range paths {
+		f, err := s.GetFileByPath(userID, p)
+		if err != nil {
+			continue
+		}
+		toDelete := []string{p}
+		if f.IsDir {
+			children, err := s.ListDescendants(userID, p, false)
+			if err != nil {
+				return n, err
+			}
+			for _, c := range children {
+				toDelete = append(toDelete, c.Path)
+			}
+		}
+		for _, dp := range toDelete {
+			if _, err := s.SoftDelete(userID, dp); err == nil {
+				n++
+			}
+		}
 	}
-	_ = os.Remove(s.BlobPath(hash))
+	return n, nil
+}
+
+// ListDescendants returns active (or all if includeDeleted) files under prefix/.
+func (s *Store) ListDescendants(userID int64, prefix string, includeDeleted bool) ([]FileMeta, error) {
+	prefix = strings.Trim(prefix, "/")
+	q := `
+SELECT id, user_id, path, name, is_dir, size, hash, mime, mtime, deleted, version,
+       device_id, gallery_key, width, height, taken_at
+FROM files WHERE user_id=? AND path LIKE ?`
+	args := []any{userID, prefix + "/%"}
+	if !includeDeleted {
+		q += ` AND deleted=0`
+	}
+	q += ` ORDER BY path`
+	rows, err := s.DB.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FileMeta
+	for rows.Next() {
+		f, err := scanFile(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// CollectForDownload expands selected paths into file entries (folders → all children).
+func (s *Store) CollectForDownload(userID int64, paths []string) ([]FileMeta, error) {
+	seen := map[string]bool{}
+	var out []FileMeta
+	add := func(f FileMeta) {
+		if f.IsDir || f.Deleted || f.Hash == "" || seen[f.Path] {
+			return
+		}
+		seen[f.Path] = true
+		out = append(out, f)
+	}
+	for _, p := range paths {
+		f, err := s.GetFileByPath(userID, p)
+		if err != nil || f.Deleted {
+			continue
+		}
+		if f.IsDir {
+			children, err := s.ListDescendants(userID, p, false)
+			if err != nil {
+				return nil, err
+			}
+			for _, c := range children {
+				add(c)
+			}
+		} else {
+			add(*f)
+		}
+	}
+	return out, nil
 }
 
 func nextVersionTx(tx *sql.Tx, userID int64) (int64, error) {
@@ -651,4 +728,13 @@ func splitPath(p string) []string {
 		parts = append(parts, p[start:])
 	}
 	return parts
+}
+
+func (s *Store) maybeRemoveBlob(hash string) {
+	var n int
+	err := s.DB.QueryRow(`SELECT COUNT(*) FROM files WHERE hash=? AND deleted=0`, hash).Scan(&n)
+	if err != nil || n > 0 {
+		return
+	}
+	_ = os.Remove(s.BlobPath(hash))
 }

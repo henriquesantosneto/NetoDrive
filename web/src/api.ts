@@ -125,6 +125,51 @@ export function emptyTrash() {
   return request<{ purged: number }>("/api/trash", { method: "DELETE" });
 }
 
+export function bulkDelete(paths: string[]) {
+  return request<{ deleted: number }>("/api/bulk/delete", {
+    method: "POST",
+    body: JSON.stringify({ paths }),
+  });
+}
+
+export function bulkPurge(paths: string[]) {
+  return request<{ purged: number }>("/api/bulk/purge", {
+    method: "POST",
+    body: JSON.stringify({ paths }),
+  });
+}
+
+export function bulkRestore(paths: string[]) {
+  return request<{ restored: number }>("/api/bulk/restore", {
+    method: "POST",
+    body: JSON.stringify({ paths }),
+  });
+}
+
+export async function bulkDownload(paths: string[]) {
+  const res = await fetch(`${apiBase()}/api/bulk/download`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getToken()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ paths }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "download failed");
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `netodrive-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 function encodePath(path: string) {
   return path
     .split("/")
