@@ -214,6 +214,38 @@ func deleteLocalFilePlatform(localRoot, rel string) error {
 	return nil
 }
 
+func runProviderCommand(args ...string) error {
+	exe := providerExe()
+	if exe == "" {
+		return fmt.Errorf("netodrive-provider nao instalado")
+	}
+	cfg := defaultConfigForProvider()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmdArgs := append(append([]string{}, args...), "-config", cfg)
+	cmd := exec.CommandContext(ctx, exe, cmdArgs...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%w: %s", err, msg)
+		}
+		return err
+	}
+	return nil
+}
+
+func providerPin(rel string) error {
+	return runProviderCommand("-pin", filepath.ToSlash(rel))
+}
+
+func providerHydrate(rel string) error {
+	return runProviderCommand("-hydrate", filepath.ToSlash(rel))
+}
+
+func providerDehydrate(rel string) error {
+	return runProviderCommand("-dehydrate", filepath.ToSlash(rel))
+}
+
 // ResolveOpenRel maps a double-click path (maybe .lnk) to account-relative path.
 func ResolveOpenRel(localRoot, argPath string) string {
 	argPath = strings.TrimSpace(argPath)

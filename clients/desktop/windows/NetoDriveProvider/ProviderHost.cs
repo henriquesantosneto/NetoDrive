@@ -18,6 +18,7 @@ internal sealed class ProviderHost : IDisposable
     private static readonly CF_CALLBACK FetchPlaceholdersCb = OnFetchPlaceholders;
     private static readonly CF_CALLBACK FetchDataCb = OnFetchData;
     private static readonly CF_CALLBACK NotifyDeleteCb = OnNotifyDelete;
+    private static readonly CF_CALLBACK NotifyDehydrateCb = OnNotifyDehydrate;
 
     private readonly AppConfig _cfg;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(30) };
@@ -49,6 +50,11 @@ internal sealed class ProviderHost : IDisposable
             {
                 Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_DELETE,
                 Callback = NotifyDeleteCb,
+            },
+            new()
+            {
+                Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_DEHYDRATE,
+                Callback = NotifyDehydrateCb,
             },
             CF_CALLBACK_REGISTRATION.CF_CALLBACK_REGISTRATION_END,
         };
@@ -116,12 +122,38 @@ internal sealed class ProviderHost : IDisposable
     {
         try
         {
-            AckDelete(in info, (NTStatus)0);
+            _active?.HandleNotifyDelete(info);
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"NOTIFY_DELETE erro: {ex.Message}");
         }
+    }
+
+    private static void OnNotifyDehydrate(in CF_CALLBACK_INFO info, in CF_CALLBACK_PARAMETERS parameters)
+    {
+        try
+        {
+            AckDehydrate(in info, (NTStatus)0);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"NOTIFY_DEHYDRATE erro: {ex.Message}");
+        }
+    }
+
+    private void HandleNotifyDelete(in CF_CALLBACK_INFO info)
+    {
+        var path = info.VolumeDosName + info.NormalizedPath;
+        if (!path.StartsWith(_cfg.LocalFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            AckDelete(in info, (NTStatus)0);
+            return;
+        }
+        var rel = Path.GetRelativePath(_cfg.LocalFolder, path).Replace('\\', '/').Trim('/');
+        if (!string.IsNullOrEmpty(rel) && rel != ".")
+            LocalChangesQueue.EnqueueDelete(_cfg, rel);
+        AckDelete(in info, (NTStatus)0);
     }
 
     private void HandleFetchPlaceholders(in CF_CALLBACK_INFO info)
@@ -232,6 +264,26 @@ internal sealed class ProviderHost : IDisposable
             foreach (var h in handles)
                 h.Dispose();
         }
+    }
+
+    private static void AckDehydrate(in CF_CALLBACK_INFO info, NTStatus status)
+    {
+        var ack = new CF_OPERATION_PARAMETERS.ACKDEHYDRATE
+        {
+            Flags = CF_OPERATION_ACK_DEHYDRATE_FLAGS.CF_OPERATION_ACK_DEHYDRATE_FLAG_NONE,
+            CompletionStatus = status,
+        };
+        var opParams = CF_OPERATION_PARAMETERS.Create(ack);
+        var opInfo = new CF_OPERATION_INFO
+        {
+            StructSize = (uint)Marshal.SizeOf<CF_OPERATION_INFO>(),
+            Type = CF_OPERATION_TYPE.CF_OPERATION_TYPE_ACK_DEHYDRATE,
+            ConnectionKey = info.ConnectionKey,
+            TransferKey = info.TransferKey,
+            RequestKey = info.RequestKey,
+            CorrelationVector = info.CorrelationVector,
+        };
+        CfExecute(opInfo, ref opParams).ThrowIfFailed();
     }
 
     private static void AckDelete(in CF_CALLBACK_INFO info, NTStatus status)

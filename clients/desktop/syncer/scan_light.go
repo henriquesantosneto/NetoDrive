@@ -12,6 +12,7 @@ func scanLocalFilesLight(localRoot string, known map[string]string) (map[string]
 
 	// CFAPI sync root: meta + sync-state only — zero access to the sync folder (ReadDir/Stat freeze Explorer).
 	if cfapiProviderActive() {
+		known = filterKnownExcludingDeletes(localRoot, known)
 		for rel, hash := range known {
 			if _, ok := local[rel]; ok {
 				continue

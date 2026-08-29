@@ -18,7 +18,7 @@ import (
 	"github.com/netodrive/desktop/syncer"
 )
 
-const buildVersion = "fast-path-cfapi-v7"
+const buildVersion = "fast-path-cfapi-v8"
 
 type Config struct {
 	ServerURL   string `json:"server_url"`
@@ -425,6 +425,22 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 			t := time.NewTicker(time.Duration(cfg.IntervalSec) * time.Second)
 			defer t.Stop()
 			for range t.C {
+				if err := run(); err != nil && strings.Contains(err.Error(), "sync ja em andamento") {
+					continue
+				}
+			}
+		}()
+	} else {
+		// CFAPI: poll remote manifest only (no folder scan unless something changed).
+		go func() {
+			t := time.NewTicker(60 * time.Second)
+			defer t.Stop()
+			for range t.C {
+				changed, err := syncer.RemoteManifestChanged(client, statePath, cfg.LocalFolder)
+				pending := syncer.HasPendingLocalChanges(cfg.LocalFolder)
+				if err != nil || (!changed && !pending) {
+					continue
+				}
 				if err := run(); err != nil && strings.Contains(err.Error(), "sync ja em andamento") {
 					continue
 				}

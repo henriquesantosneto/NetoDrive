@@ -73,6 +73,33 @@ internal static class Program
                     PlaceholderManager.Remove(cfg, args[1]);
                     return 0;
 
+                case "-pin":
+                    if (args.Length < 2)
+                    {
+                        Console.Error.WriteLine("Uso: -pin <rel>");
+                        return 1;
+                    }
+                    PlaceholderManager.Pin(cfg, args[1]);
+                    return 0;
+
+                case "-dehydrate":
+                    if (args.Length < 2)
+                    {
+                        Console.Error.WriteLine("Uso: -dehydrate <rel>");
+                        return 1;
+                    }
+                    PlaceholderManager.Dehydrate(cfg, args[1]);
+                    return 0;
+
+                case "-hydrate":
+                    if (args.Length < 2)
+                    {
+                        Console.Error.WriteLine("Uso: -hydrate <rel>");
+                        return 1;
+                    }
+                    PlaceholderManager.Hydrate(cfg, args[1]);
+                    return 0;
+
                 case "-run":
                     using (var host = new ProviderHost(cfg))
                     {
@@ -104,7 +131,9 @@ internal static class Program
     private static void PrintUsage()
     {
         Console.WriteLine("""
-            netodrive-provider -register | -ensure-register | -unregister | -run | -status | -placeholder <rel> <hash> <size> | -remove <rel>
+            netodrive-provider -register | -ensure-register | -unregister | -run | -status
+              | -placeholder <rel> <hash> <size> | -remove <rel>
+              | -pin <rel> | -dehydrate <rel> | -hydrate <rel>
               -config <path>   (opcional, padrao %APPDATA%\\NetoDrive\\netodrive.json)
             """);
     }

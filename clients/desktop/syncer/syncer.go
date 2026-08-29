@@ -292,7 +292,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	}
 	syncLog("sync: manifest com %d entradas", len(man.Files))
 	fp := manifestFingerprint(man)
-	if fp != "" && fp == st.LastManifestFP {
+	if fp != "" && fp == st.LastManifestFP && !HasPendingLocalChanges(localRoot) {
 		syncLog("sync: sem alteracoes remotas (skip scan CFAPI)")
 		return SaveStateCached(statePath, st)
 	}
@@ -335,7 +335,8 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	}
 
 	syncLog("sync: escaneando pasta local...")
-	local, err := scanLocalFilesForSync(localRoot, st.Known)
+	knownForScan := filterKnownExcludingDeletes(localRoot, st.Known)
+	local, err := scanLocalFilesForSync(localRoot, knownForScan)
 	if err != nil {
 		return err
 	}
@@ -383,6 +384,8 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 			continue
 		}
 		delete(local, rel)
+		delete(st.Known, rel)
+		delete(st.Entries, rel)
 	}
 
 	for _, rel := range plan.deleteRemote {
@@ -396,6 +399,9 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 			_ = c.Delete(rel)
 		}
 		delete(remote, rel)
+		delete(st.Known, rel)
+		delete(st.Entries, rel)
+		_ = ClearLocalDelete(localRoot, rel)
 	}
 
 	for _, rel := range plan.upload {
@@ -463,7 +469,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	removeEmptyLegacyDirs(localRoot)
 
 	syncLog("sync: reindexando pasta local...")
-	local, err = scanLocalFilesForSync(localRoot, st.Known)
+	local, err = scanLocalFilesForSync(localRoot, filterKnownExcludingDeletes(localRoot, st.Known))
 	if err != nil {
 		return err
 	}
@@ -493,11 +499,20 @@ func hydratePinnedFromManifest(c *Client, localRoot string, st *SyncState, remot
 		localPath := placeholderPath(localRoot, rel)
 		if !IsPlaceholderRel(localRoot, rel) {
 			if cfapiProviderActive() {
+				if err := providerHydrate(rel); err != nil {
+					return fmt.Errorf("hydrate pinned %s: %w", rel, err)
+				}
 				continue
 			}
 			if h, _, err := FileHash(localPath); err == nil && h == e.Hash {
 				continue
 			}
+		}
+		if cfapiProviderActive() {
+			if err := providerHydrate(rel); err != nil {
+				return fmt.Errorf("hydrate pinned %s: %w", rel, err)
+			}
+			continue
 		}
 		downloadPath := e.Path
 		if legacyRemote, ok := legacyRemotes[rel]; ok {

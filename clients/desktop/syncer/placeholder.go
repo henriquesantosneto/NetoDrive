@@ -132,7 +132,7 @@ func isPinnedPath(pinned []string, rel string) bool {
 }
 
 func PinPath(statePath, target string) error {
-	st, err := loadStateFile(statePath)
+	st, err := LoadStateCached(statePath, "")
 	if err != nil {
 		return err
 	}
@@ -142,15 +142,15 @@ func PinPath(statePath, target string) error {
 	}
 	for _, p := range st.Pinned {
 		if filepath.ToSlash(strings.Trim(p, "/")) == target {
-			return SaveState(statePath, st)
+			return SaveStateCached(statePath, st)
 		}
 	}
 	st.Pinned = append(st.Pinned, target)
-	return SaveState(statePath, st)
+	return SaveStateCached(statePath, st)
 }
 
 func UnpinPath(statePath, target string) error {
-	st, err := loadStateFile(statePath)
+	st, err := LoadStateCached(statePath, "")
 	if err != nil {
 		return err
 	}
@@ -162,7 +162,7 @@ func UnpinPath(statePath, target string) error {
 		}
 	}
 	st.Pinned = next
-	return SaveState(statePath, st)
+	return SaveStateCached(statePath, st)
 }
 
 func PinLocalPath(c *Client, localRoot, statePath, target string, onDemand bool) error {
@@ -183,10 +183,19 @@ func PinLocalPath(c *Client, localRoot, statePath, target string, onDemand bool)
 		}
 		rel, _ := localRelFromRemote(e.Path)
 		if rel == target || strings.HasPrefix(rel, target+"/") {
+			if cfapiProviderActive() {
+				if err := providerPin(rel); err != nil {
+					fmt.Fprintf(os.Stderr, "aviso: fixar %s: %v\n", rel, err)
+				}
+				continue
+			}
 			if err := HydratePath(c, localRoot, statePath, rel); err != nil {
 				return err
 			}
 		}
+	}
+	if cfapiProviderActive() {
+		return nil
 	}
 	return SyncFolder(c, localRoot, statePath, onDemand)
 }
@@ -199,7 +208,7 @@ func UnpinLocalPath(c *Client, localRoot, statePath, target string, onDemand boo
 		return nil
 	}
 	target = filepath.ToSlash(strings.Trim(target, "/"))
-	st, err := LoadState(statePath, localRoot)
+	st, err := LoadStateCached(statePath, localRoot)
 	if err != nil {
 		return err
 	}
@@ -208,6 +217,12 @@ func UnpinLocalPath(c *Client, localRoot, statePath, target string, onDemand boo
 			continue
 		}
 		if isPinnedPath(st.Pinned, rel) {
+			continue
+		}
+		if cfapiProviderActive() {
+			if err := providerDehydrate(rel); err != nil {
+				fmt.Fprintf(os.Stderr, "aviso: liberar espaco %s: %v\n", rel, err)
+			}
 			continue
 		}
 		meta := placeholderMeta{Hash: entry.Hash, Size: entry.Size}
@@ -263,6 +278,37 @@ func HydratePath(c *Client, localRoot, statePath, rel string) error {
 	}
 
 	localPath := placeholderPath(localRoot, rel)
+	if cfapiProviderActive() {
+		if err := providerHydrate(rel); err != nil {
+			return err
+		}
+		hash := ""
+		if meta, ok := readPlaceholderMetaForRel(localRoot, rel); ok {
+			hash = meta.Hash
+		} else {
+			for _, e := range man.Files {
+				nrel, _ := localRelFromRemote(e.Path)
+				if nrel == rel {
+					hash = e.Hash
+					break
+				}
+			}
+		}
+		if hash == "" {
+			return fmt.Errorf("cannot resolve hash for %s", rel)
+		}
+		if st.Entries == nil {
+			st.Entries = map[string]FileEntry{}
+		}
+		avail := AvHydrated
+		if isPinnedPath(st.Pinned, rel) {
+			avail = AvPinned
+		}
+		st.Entries[rel] = FileEntry{Hash: hash, Availability: avail}
+		st.Known[rel] = hash
+		return SaveStateCached(statePath, st)
+	}
+
 	removePlatformPlaceholder(localRoot, rel)
 	fmt.Printf("↓ hydrate %s\n", rel)
 	if err := c.Download(remotePath, localPath); err != nil {
@@ -281,7 +327,7 @@ func HydratePath(c *Client, localRoot, statePath, rel string) error {
 	}
 	st.Entries[rel] = FileEntry{Hash: hash, Availability: avail}
 	st.Known[rel] = hash
-	return SaveState(statePath, st)
+	return SaveStateCached(statePath, st)
 }
 
 func HydratePinned(c *Client, localRoot, statePath string) error {

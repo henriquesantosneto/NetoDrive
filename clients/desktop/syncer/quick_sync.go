@@ -18,8 +18,31 @@ func TryQuickSync(c *Client, statePath, localRoot string) (bool, error) {
 		return false, err
 	}
 	fp := manifestFingerprint(man)
+	if HasPendingLocalChanges(localRoot) {
+		return false, nil
+	}
 	if fp != "" && fp == st.LastManifestFP {
 		return true, nil
 	}
 	return false, nil
+}
+
+// RemoteManifestChanged reports whether the server manifest differs from the last sync.
+func RemoteManifestChanged(c *Client, statePath, localRoot string) (bool, error) {
+	st, err := LoadStateCached(statePath, localRoot)
+	if err != nil {
+		return false, err
+	}
+	if st.LastManifestFP == "" {
+		return true, nil
+	}
+	if err := c.Ping(); err != nil {
+		return false, err
+	}
+	man, err := c.Manifest()
+	if err != nil {
+		return false, err
+	}
+	fp := manifestFingerprint(man)
+	return fp != st.LastManifestFP, nil
 }
