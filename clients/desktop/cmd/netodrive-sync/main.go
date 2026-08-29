@@ -18,7 +18,13 @@ import (
 	"github.com/netodrive/desktop/syncer"
 )
 
-const buildVersion = "fast-path-cfapi-v13"
+const buildVersion = "fast-path-cfapi-v14"
+
+const (
+	minSyncIntervalSec = 5
+	maxSyncIntervalSec = 86400
+	defaultSyncIntervalSec = 30
+)
 
 type Config struct {
 	ServerURL   string `json:"server_url"`
@@ -120,8 +126,9 @@ func main() {
 		}
 	}
 	if cfg.IntervalSec <= 0 {
-		cfg.IntervalSec = 30
+		cfg.IntervalSec = defaultSyncIntervalSec
 	}
+	cfg.IntervalSec = normalizeIntervalSec(cfg.IntervalSec)
 	fmt.Printf("Pasta local de sync: %s\n", cfg.LocalFolder)
 	fmt.Fprintf(os.Stderr, "NetoDrive sync engine: %s\n", buildVersion)
 	cfapiActive := syncer.CfapiProviderInstalled()
@@ -275,24 +282,34 @@ func main() {
 		startControlPanel(cfg, *cfgPath, client, onDemand, cfapiActive, run)
 		return
 	}
-	startBackgroundSync(cfg, cfapiActive, client, statePath, run)
+	startBackgroundSync(*cfgPath, run)
 	select {}
 }
 
-func syncPollInterval(cfg Config) time.Duration {
-	sec := cfg.IntervalSec
+func normalizeIntervalSec(sec int) int {
 	if sec <= 0 {
-		sec = 30
+		sec = defaultSyncIntervalSec
 	}
-	interval := time.Duration(sec) * time.Second
-	if interval < 30*time.Second {
-		interval = 30 * time.Second
+	if sec < minSyncIntervalSec {
+		sec = minSyncIntervalSec
 	}
-	return interval
+	if sec > maxSyncIntervalSec {
+		sec = maxSyncIntervalSec
+	}
+	return sec
 }
 
-func startBackgroundSync(cfg Config, cfapiActive bool, client *syncer.Client, statePath string, run func() error) {
-	interval := syncPollInterval(cfg)
+func intervalFromConfig(cfgPath string) int {
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		return defaultSyncIntervalSec
+	}
+	return normalizeIntervalSec(cfg.IntervalSec)
+}
+
+func startBackgroundSync(cfgPath string, run func() error) {
+	interval := time.Duration(intervalFromConfig(cfgPath)) * time.Second
+	fmt.Fprintf(os.Stderr, "sync automatico: a cada %s (interval_sec no config)\n", interval)
 	go func() {
 		time.Sleep(3 * time.Second)
 		if err := run(); err != nil && !strings.Contains(err.Error(), "sync ja em andamento") {
@@ -300,14 +317,15 @@ func startBackgroundSync(cfg Config, cfapiActive bool, client *syncer.Client, st
 		}
 	}()
 	go func() {
-		t := time.NewTicker(interval)
-		defer t.Stop()
-		for range t.C {
-			if cfapiActive {
-				need, err := syncer.NeedsBackgroundSync(client, statePath, cfg.LocalFolder)
-				if err != nil || !need {
-					continue
-				}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			<-ticker.C
+			if newInterval := time.Duration(intervalFromConfig(cfgPath)) * time.Second; newInterval != interval {
+				interval = newInterval
+				ticker.Stop()
+				ticker = time.NewTicker(interval)
+				fmt.Fprintf(os.Stderr, "sync: intervalo atualizado para %s\n", interval)
 			}
 			if err := run(); err != nil && strings.Contains(err.Error(), "sync ja em andamento") {
 				continue
@@ -334,10 +352,7 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 		if running {
 			serverOK = true
 		}
-		intervalSec := cfg.IntervalSec
-		if intervalSec <= 0 {
-			intervalSec = 30
-		}
+		intervalSec := intervalFromConfig(cfgPath)
 		writeJSON(w, map[string]any{
 			"server_url":         cfg.ServerURL,
 			"local_folder":       cfg.LocalFolder,
@@ -455,7 +470,7 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 	fmt.Printf("Painel NetoDrive: %s\n", addr)
 	_ = openURL(addr)
 
-	startBackgroundSync(cfg, cfapiActive, client, statePath, run)
+	startBackgroundSync(cfgPath, run)
 
 	if err := http.Serve(ln, mux); err != nil {
 		fatal(err)
@@ -463,9 +478,7 @@ func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDema
 }
 
 func controlPanelIntervalLabel(intervalSec int, cfapiActive bool) string {
-	if intervalSec <= 0 {
-		intervalSec = 30
-	}
+	intervalSec = normalizeIntervalSec(intervalSec)
 	label := fmt.Sprintf("%d s", intervalSec)
 	if cfapiActive {
 		return label + " (CFAPI)"
@@ -652,6 +665,23 @@ func loadConfig(path string) (Config, error) {
 			}
 		}
 	}
+	if cfg.IntervalSec <= 0 {
+		var raw map[string]json.RawMessage
+		if json.Unmarshal(fixed, &raw) == nil {
+			for _, key := range []string{"intervalSec", "IntervalSec", "sync_interval_sec"} {
+				v, ok := raw[key]
+				if !ok {
+					continue
+				}
+				var n int
+				if json.Unmarshal(v, &n) == nil && n > 0 {
+					cfg.IntervalSec = n
+					break
+				}
+			}
+		}
+	}
+	cfg.IntervalSec = normalizeIntervalSec(cfg.IntervalSec)
 	return cfg, nil
 }
 

@@ -65,6 +65,54 @@ func TestNormalizeConfigDoesNotOverrideOneDrive(t *testing.T) {
 	}
 }
 
+func TestLoadConfigIntervalAliases(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "netodrive.json")
+
+	tests := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"snake_case", `{"interval_sec":120}`, 120},
+		{"camelCase", `{"intervalSec":45}`, 45},
+		{"PascalCase", `{"IntervalSec":90}`, 90},
+		{"minimum_clamp", `{"interval_sec":2}`, minSyncIntervalSec},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(cfgPath, []byte(tc.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := loadConfig(cfgPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.IntervalSec != tc.want {
+				t.Fatalf("IntervalSec = %d want %d", cfg.IntervalSec, tc.want)
+			}
+		})
+	}
+}
+
+func TestIntervalFromConfigReloads(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "netodrive.json")
+	if err := os.WriteFile(cfgPath, []byte(`{"interval_sec":60}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := intervalFromConfig(cfgPath); got != 60 {
+		t.Fatalf("got %d want 60", got)
+	}
+	if err := os.WriteFile(cfgPath, []byte(`{"interval_sec":15}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := intervalFromConfig(cfgPath); got != 15 {
+		t.Fatalf("after edit got %d want 15", got)
+	}
+}
+
 func TestLoadConfigDoesNotRewriteFile(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "netodrive.json")
