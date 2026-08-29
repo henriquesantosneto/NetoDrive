@@ -3,9 +3,11 @@
 package syncer
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func placeholderDiskPath(localRoot, rel string) string {
@@ -35,6 +37,21 @@ func providerPin(localRoot, rel string) error { return nil }
 func providerHydrate(localRoot, rel string) error { return nil }
 
 func providerDehydrate(localRoot, rel string) error { return nil }
+
+func ensureProviderProcess(localRoot string) error { return nil }
+
+func ensureCFAPIPlaceholder(localRoot, rel string, meta placeholderMeta) error { return nil }
+
+func waitForLocalPlaceholder(path string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("timeout aguardando arquivo local: %s", path)
+}
 
 // ResolveOpenRel maps a path under localRoot to account-relative path.
 func ResolveOpenRel(localRoot, argPath string) string {

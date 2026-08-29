@@ -81,8 +81,24 @@ internal static class NetoDriveConfig
             UseShellExecute = false,
             CreateNoWindow = true,
             WorkingDirectory = InstallDir,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
-        System.Diagnostics.Process.Start(psi);
+        using var process = System.Diagnostics.Process.Start(psi);
+        if (process == null)
+            throw new InvalidOperationException("nao foi possivel iniciar netodrive-sync");
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit(120_000);
+        if (process.ExitCode != 0)
+        {
+            var detail = stderr.Trim();
+            if (string.IsNullOrEmpty(detail))
+                detail = stdout.Trim();
+            if (string.IsNullOrEmpty(detail))
+                detail = $"codigo de saida {process.ExitCode}";
+            throw new InvalidOperationException(detail);
+        }
     }
 
     private static string PrepareJson(string json) =>

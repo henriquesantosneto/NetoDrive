@@ -251,6 +251,98 @@ func providerDehydrate(localRoot, rel string) error {
 	return runProviderOp(localRoot, "dehydrate", rel)
 }
 
+func ensureProviderProcess(localRoot string) error {
+	if providerRunProcessActive() {
+		return nil
+	}
+	cfg := defaultConfigForProvider()
+	if cfg == "" {
+		return fmt.Errorf("netodrive.json nao encontrado")
+	}
+	return startProviderRunProcess(cfg)
+}
+
+func providerRunProcessActive() bool {
+	cmd := exec.Command("tasklist", "/FI", "IMAGENAME eq netodrive-provider.exe", "/NH")
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(out)), "netodrive-provider.exe")
+}
+
+func startProviderRunProcess(cfgPath string) error {
+	exe := providerExe()
+	if exe == "" {
+		return fmt.Errorf("netodrive-provider nao instalado")
+	}
+	appData := os.Getenv("APPDATA")
+	if appData == "" {
+		home, _ := os.UserHomeDir()
+		appData = filepath.Join(home, "AppData", "Roaming")
+	}
+	logDir := filepath.Join(appData, "NetoDrive", "logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return err
+	}
+	logPath := filepath.Join(logDir, "provider.log")
+	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer logFile.Close()
+
+	reg := exec.Command(exe, "-ensure-register", "-config", cfgPath)
+	reg.Stdout = logFile
+	reg.Stderr = logFile
+	_ = reg.Run()
+
+	cmd := exec.Command(exe, "-run", "-config", cfgPath)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("iniciar provider: %w", err)
+	}
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if providerRunProcessActive() {
+			time.Sleep(500 * time.Millisecond)
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("provider CFAPI nao iniciou (veja %s)", logPath)
+}
+
+func ensureCFAPIPlaceholder(localRoot, rel string, meta placeholderMeta) error {
+	if !cfapiProviderActive() {
+		return nil
+	}
+	path := placeholderPath(localRoot, rel)
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	if err := writePlaceholder(localRoot, rel, meta); err != nil {
+		return err
+	}
+	if err := ensureProviderProcess(localRoot); err != nil {
+		return err
+	}
+	return waitForLocalPlaceholder(path, 45*time.Second)
+}
+
+func waitForLocalPlaceholder(path string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("timeout aguardando placeholder local: %s", path)
+}
+
 // ResolveOpenRel maps a double-click path (maybe .lnk) to account-relative path.
 func ResolveOpenRel(localRoot, argPath string) string {
 	argPath = strings.TrimSpace(argPath)

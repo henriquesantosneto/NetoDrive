@@ -608,8 +608,11 @@ func hydratePinnedFromManifest(c *Client, localRoot string, st *SyncState, remot
 		}
 		localPath := placeholderPath(localRoot, rel)
 		if cfapiProviderActive() {
-			if !IsPlaceholderRel(localRoot, rel) {
-				continue
+			if _, err := os.Stat(localPath); os.IsNotExist(err) {
+				meta := placeholderMeta{Hash: e.Hash, Size: e.Size}
+				if err := ensureCFAPIPlaceholder(localRoot, rel, meta); err != nil {
+					return fmt.Errorf("placeholder pinned %s: %w", rel, err)
+				}
 			}
 			if err := providerHydrate(localRoot, rel); err != nil {
 				return fmt.Errorf("hydrate pinned %s: %w", rel, err)
