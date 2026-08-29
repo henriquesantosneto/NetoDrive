@@ -49,30 +49,21 @@ func (c *Client) remotePathActive(remotePath string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	remotePath = strings.Trim(strings.ReplaceAll(remotePath, "\\", "/"), "/")
-	for _, e := range man.Files {
-		if e.IsDir {
-			continue
-		}
-		if strings.Trim(e.Path, "/") == remotePath {
-			return true, nil
-		}
-	}
-	return false, nil
+	return manifestHasPath(man, remotePath), nil
 }
 
-func renameRemotePaths(c *Client, from, to, remotePrefix string, legacyRemotes map[string]string) error {
+func renameRemotePaths(c *Client, man *Manifest, from, to, remotePrefix string, legacyRemotes map[string]string) error {
 	oldRemote := remoteDeletePath(from, remotePrefix, legacyRemotes)
 	newRemote := to
 	if remotePrefix != "" {
 		newRemote = remotePrefix + "/" + to
 	}
 
-	if ok, err := c.remotePathActive(newRemote); err == nil && ok {
+	if manifestHasPath(man, newRemote) {
 		syncLog("↪ rename ja aplicado: %s existe no servidor", newRemote)
-		_ = c.Delete(oldRemote)
+		_ = c.deleteRemoteIgnoreMissing(oldRemote)
 		if oldRemote != from {
-			_ = c.Delete(from)
+			_ = c.deleteRemoteIgnoreMissing(from)
 		}
 		return nil
 	}
@@ -87,8 +78,8 @@ func renameRemotePaths(c *Client, from, to, remotePrefix string, legacyRemotes m
 				return nil
 			}
 		}
-		if ok, checkErr := c.remotePathActive(newRemote); checkErr == nil && ok {
-			_ = c.Delete(oldRemote)
+		if manifestHasPath(man, newRemote) {
+			_ = c.deleteRemoteIgnoreMissing(oldRemote)
 			return nil
 		}
 		return err
@@ -104,6 +95,18 @@ func renameRemotePaths(c *Client, from, to, remotePrefix string, legacyRemotes m
 	}
 
 	return fmt.Errorf("%w: atualize e reinicie o servidor NetoDrive", ErrRenameAPINotSupported)
+}
+
+func (c *Client) deleteRemoteIgnoreMissing(remotePath string) error {
+	err := c.Delete(remotePath)
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "not found") ||
+		strings.Contains(err.Error(), "404") {
+		return nil
+	}
+	return err
 }
 
 func (c *Client) renameViaStream(oldRemote, newRemote string) error {
@@ -127,7 +130,7 @@ func (c *Client) renameViaStream(oldRemote, newRemote string) error {
 	if _, err := c.uploadStream(res.Body, size, newRemote, time.Now().UTC()); err != nil {
 		return err
 	}
-	if err := c.Delete(oldRemote); err != nil {
+	if err := c.deleteRemoteIgnoreMissing(oldRemote); err != nil {
 		fmt.Fprintf(os.Stderr, "aviso: rename remove %s: %v\n", oldRemote, err)
 	}
 	return nil

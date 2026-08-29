@@ -13,11 +13,11 @@ func applyPendingLocalDeletes(c *Client, localRoot, remotePrefix string, legacyR
 	for rel := range pending {
 		remotePath := remoteDeletePath(rel, remotePrefix, legacyRemotes)
 		syncLog("× remoto %s (delete local pendente)", remotePath)
-		if err := c.Delete(remotePath); err != nil {
+		if err := c.deleteRemoteIgnoreMissing(remotePath); err != nil {
 			return fmt.Errorf("delete remote %s: %w", remotePath, err)
 		}
 		if remotePath != rel {
-			_ = c.Delete(rel)
+			_ = c.deleteRemoteIgnoreMissing(rel)
 		}
 		removePlatformPlaceholder(localRoot, rel)
 		delete(st.Known, rel)

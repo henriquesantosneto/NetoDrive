@@ -3,7 +3,6 @@ package syncer
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -162,21 +161,3 @@ func pendingRenameMap(localRoot string) map[string]string {
 	return out
 }
 
-// applyPendingLocalRenames moves server-side paths for Explorer renames queued by the provider.
-func applyPendingLocalRenames(c *Client, localRoot, remotePrefix string, legacyRemotes map[string]string, st *SyncState) error {
-	set, err := PendingLocalRenameSet(localRoot)
-	if err != nil || len(set) == 0 {
-		return err
-	}
-	for _, rn := range set {
-		from, to := rn.From, rn.To
-		renameLocalState(localRoot, st, from, to)
-		if err := renameRemotePaths(c, from, to, remotePrefix, legacyRemotes); err != nil {
-			return fmt.Errorf("rename remote %s -> %s: %w", from, to, err)
-		}
-		if err := ClearLocalRename(localRoot, rn); err != nil {
-			return err
-		}
-	}
-	return nil
-}

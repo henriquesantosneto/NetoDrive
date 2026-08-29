@@ -304,12 +304,35 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		if err := applyPendingPinOps(statePath, localRoot); err != nil {
 			return err
 		}
-		syncLog("sync: aplicando renames locais pendentes...")
-		if err := applyPendingLocalRenames(c, localRoot, remotePrefix, legacyRemotesFromManifest(man, remotePrefix), &st); err != nil {
+	}
+
+	syncLog("sync: aplicando changes remotos...")
+	newCursor, err := applyRemoteChanges(c, localRoot, st.ChangeCursor, &st)
+	if err != nil {
+		if IsConnectionError(err) {
+			fmt.Fprintf(os.Stderr, "aviso: feed de changes indisponivel: %v\n", err)
+		} else {
+			return fmt.Errorf("apply changes: %w", err)
+		}
+	} else {
+		st.ChangeCursor = newCursor
+	}
+
+	man, err = c.Manifest()
+	if err != nil {
+		return err
+	}
+	fp = manifestFingerprint(man)
+	syncLog("sync: manifest atualizado pos-changes (%d entradas)", len(man.Files))
+
+	if HasPendingLocalChanges(localRoot) {
+		legacy := legacyRemotesFromManifest(man, remotePrefix)
+		syncLog("sync: reconciliando renames locais pendentes...")
+		if err := applyPendingLocalRenames(c, localRoot, remotePrefix, legacy, man, &st); err != nil {
 			return err
 		}
 		syncLog("sync: aplicando deletes locais pendentes...")
-		if err := applyPendingLocalDeletes(c, localRoot, remotePrefix, map[string]string{}, &st); err != nil {
+		if err := applyPendingLocalDeletes(c, localRoot, remotePrefix, legacy, &st); err != nil {
 			return err
 		}
 		man, err = c.Manifest()
@@ -320,8 +343,8 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 		syncLog("sync: manifest atualizado (%d entradas)", len(man.Files))
 	}
 
-	syncLog("sync: aplicando changes remotos...")
-	newCursor, err := applyRemoteChanges(c, localRoot, st.ChangeCursor)
+	syncLog("sync: aplicando changes remotos (pos-reconcile)...")
+	newCursor, err = applyRemoteChanges(c, localRoot, st.ChangeCursor, &st)
 	if err != nil {
 		if IsConnectionError(err) {
 			fmt.Fprintf(os.Stderr, "aviso: feed de changes indisponivel: %v\n", err)
@@ -563,7 +586,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	st.KnownDirs = localDirs
 	st.Entries = rebuildEntries(localRoot, local, remote, st)
 
-	newCursor, err = applyRemoteChanges(c, localRoot, st.ChangeCursor)
+	newCursor, err = applyRemoteChanges(c, localRoot, st.ChangeCursor, &st)
 	if err != nil {
 		if IsConnectionError(err) {
 			fmt.Fprintf(os.Stderr, "aviso: feed de changes (pos-sync) indisponivel: %v\n", err)

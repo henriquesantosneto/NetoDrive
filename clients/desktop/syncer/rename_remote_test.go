@@ -32,7 +32,8 @@ func TestRenameFallsBackWhenAPIMissing(t *testing.T) {
 	defer srv.Close()
 
 	c := &Client{BaseURL: srv.URL, Token: "t", HTTP: srv.Client()}
-	if err := renameRemotePaths(c, "a.txt", "abc.txt", "", nil); err != nil {
+	man := &Manifest{Files: []ManifestEntry{{Path: "a.txt", Hash: "h1", Size: 3}}}
+	if err := renameRemotePaths(c, man, "a.txt", "abc.txt", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if uploaded != "abc.txt" {

@@ -46,7 +46,7 @@ func (c *Client) FetchChanges(since int64) (*ChangesResponse, error) {
 	return &out, nil
 }
 
-func applyRemoteChanges(c *Client, localRoot string, cursor int64) (int64, error) {
+func applyRemoteChanges(c *Client, localRoot string, cursor int64, st *SyncState) (int64, error) {
 	const maxRounds = 100
 	for round := 0; round < maxRounds; round++ {
 		resp, err := c.FetchChanges(cursor)
@@ -66,6 +66,9 @@ func applyRemoteChanges(c *Client, localRoot string, cursor int64) (int64, error
 			rel, _ := localRelFromRemote(ch.File.Path)
 			if rel == "" {
 				continue
+			}
+			if st != nil {
+				_ = CancelPendingRenamesForDeletedRemote(localRoot, st, rel)
 			}
 			fmt.Printf("× local %s (excluido no servidor)\n", rel)
 			if err := deleteLocalFile(localRoot, rel); err != nil {
