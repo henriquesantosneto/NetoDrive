@@ -216,8 +216,12 @@ func FileHash(path string) (string, int64, error) {
 }
 
 // SyncFolder uploads local changes and downloads remote-only files into localRoot.
-// remotePrefix is the remote folder root (e.g. "PC/Documents").
-func SyncFolder(c *Client, localRoot, remotePrefix string) error {
+// All paths map to the account root tree (no per-device prefix).
+func SyncFolder(c *Client, localRoot string) error {
+	return syncFolder(c, localRoot, "")
+}
+
+func syncFolder(c *Client, localRoot, remotePrefix string) error {
 	localRoot, err := filepath.Abs(localRoot)
 	if err != nil {
 		return err

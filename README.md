@@ -58,9 +58,21 @@ cd clients\desktop\windows
 O cliente abre um **painel local estilo OneDrive** (`-ui`): sincronizar agora, abrir pasta e abrir a web.  
 Pasta padrão: `%USERPROFILE%\NetoDrive` · Config: `%APPDATA%\NetoDrive\netodrive.json`
 
+**Árvore única:** todos os dispositivos sincronizam na **raiz da conta** (sem prefixo por PC/celular).  
+No JSON, configure só `local_folder` e `server_url`. O campo legado `remote_prefix` é ignorado e removido ao salvar.
+
+Exemplo:
+```json
+{
+  "server_url": "http://127.0.0.1:8080",
+  "local_folder": "C:\\Users\\henri\\NetoDrive",
+  "interval_sec": 30
+}
+```
+
 Abrir um arquivo remoto sem sync completo:
 ```bat
-netodrive-sync.exe -config %APPDATA%\NetoDrive\netodrive.json -open PC\docs\arquivo.pdf
+netodrive-sync.exe -config %APPDATA%\NetoDrive\netodrive.json -open docs\arquivo.pdf
 ```
 
 Para gerar o `.exe` a partir do Linux/Mac: `./scripts/build.sh` → `dist/netodrive-sync.exe`

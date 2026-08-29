@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,14 +18,15 @@ import (
 )
 
 type Config struct {
-	ServerURL    string `json:"server_url"`
-	Username     string `json:"username"`
-	Password     string `json:"password"`
-	Token        string `json:"token,omitempty"`
-	DeviceID     string `json:"device_id"`
-	LocalFolder  string `json:"local_folder"`
-	RemotePrefix string `json:"remote_prefix"`
-	IntervalSec  int    `json:"interval_sec"`
+	ServerURL   string `json:"server_url"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	Token       string `json:"token,omitempty"`
+	DeviceID    string `json:"device_id"`
+	LocalFolder string `json:"local_folder"`
+	IntervalSec int    `json:"interval_sec"`
+	// remote_prefix is ignored (legacy); all devices share the account root tree.
+	RemotePrefixLegacy string `json:"remote_prefix,omitempty"`
 }
 
 func main() {
@@ -32,7 +34,7 @@ func main() {
 	once := flag.Bool("once", false, "run a single sync and exit")
 	initCfg := flag.Bool("init", false, "write a sample config and exit")
 	ui := flag.Bool("ui", false, "open local OneDrive-style control panel and keep syncing")
-	openRemote := flag.String("open", "", "download/open a remote path (e.g. PC/docs/a.txt)")
+	openRemote := flag.String("open", "", "download/open a remote path (e.g. docs/arquivo.pdf)")
 	flag.Parse()
 
 	if *initCfg {
@@ -42,7 +44,6 @@ func main() {
 			Password:     "admin123",
 			DeviceID:     uuid.NewString(),
 			LocalFolder:  defaultSyncFolder(),
-			RemotePrefix: "",
 			IntervalSec:  30,
 		}
 		b, _ := json.MarshalIndent(sample, "", "  ")
@@ -57,8 +58,10 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	migrated := normalizeConfig(&cfg)
 	if cfg.DeviceID == "" {
 		cfg.DeviceID = uuid.NewString()
+		migrated = true
 	}
 	if cfg.IntervalSec <= 0 {
 		cfg.IntervalSec = 30
@@ -73,25 +76,17 @@ func main() {
 			fatal(err)
 		}
 		cfg.Token = client.Token
+		migrated = true
+	}
+	if migrated {
 		_ = saveConfig(*cfgPath, cfg)
 	}
 
 	if *openRemote != "" {
-		local := filepath.Join(cfg.LocalFolder, filepath.FromSlash(*openRemote))
-		// If under remote prefix, strip when mapping; otherwise use as relative under local
-		if cfg.RemotePrefix != "" {
-			// remote path is absolute on server; download to local mirror
-			rel := *openRemote
-			prefix := cfg.RemotePrefix + "/"
-			if len(rel) >= len(prefix) && rel[:len(prefix)] == prefix {
-				rel = rel[len(prefix):]
-			} else if rel == cfg.RemotePrefix {
-				fatal(fmt.Errorf("path is a folder, not a file"))
-			}
-			local = filepath.Join(cfg.LocalFolder, filepath.FromSlash(rel))
-		}
-		fmt.Printf("opening remote %s → %s\n", *openRemote, local)
-		if err := client.Download(*openRemote, local); err != nil {
+		remote := strings.Trim(strings.ReplaceAll(*openRemote, "\\", "/"), "/")
+		local := filepath.Join(cfg.LocalFolder, filepath.FromSlash(remote))
+		fmt.Printf("opening remote %s → %s\n", remote, local)
+		if err := client.Download(remote, local); err != nil {
 			fatal(err)
 		}
 		if err := openFile(local); err != nil {
@@ -101,8 +96,8 @@ func main() {
 	}
 
 	run := func() error {
-		fmt.Printf("[%s] syncing %s ↔ %s/\n", time.Now().Format(time.RFC3339), cfg.LocalFolder, cfg.RemotePrefix)
-		if err := syncer.SyncFolder(client, cfg.LocalFolder, cfg.RemotePrefix); err != nil {
+		fmt.Printf("[%s] syncing %s ↔ arvore da conta (raiz)\n", time.Now().Format(time.RFC3339), cfg.LocalFolder)
+		if err := syncer.SyncFolder(client, cfg.LocalFolder); err != nil {
 			fmt.Fprintf(os.Stderr, "sync error: %v\n", err)
 			return err
 		}
@@ -135,11 +130,11 @@ func startControlPanel(cfg Config, client *syncer.Client, run func() error) {
 	})
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{
-			"server_url":    cfg.ServerURL,
-			"local_folder":  cfg.LocalFolder,
-			"remote_prefix": cfg.RemotePrefix,
-			"interval_sec":  cfg.IntervalSec,
-			"web_url":       cfg.ServerURL,
+			"server_url":   cfg.ServerURL,
+			"local_folder": cfg.LocalFolder,
+			"interval_sec": cfg.IntervalSec,
+			"web_url":      cfg.ServerURL,
+			"remote_tree":  "arvore da conta (raiz)",
 		})
 	})
 	mux.HandleFunc("/api/sync", func(w http.ResponseWriter, r *http.Request) {
@@ -208,11 +203,11 @@ button:hover{filter:brightness(.96)}
 <div class="top"><div class="mark">N</div>NetoDrive — Sincronização</div>
 <div class="wrap"><div class="card">
 <h1>Seus arquivos neste PC</h1>
-<p class="muted">Como o OneDrive: uma pasta local sincronizada com o servidor Linux.</p>
+<p class="muted">Pasta local espelhada na <strong>arvore principal da conta</strong> — a mesma vista da web e do Android.</p>
 <div class="kv">
 <div><b>Servidor</b><span>` + cfg.ServerURL + `</span></div>
 <div><b>Pasta local</b><span>` + cfg.LocalFolder + `</span></div>
-<div><b>Remoto</b><span>` + cfg.RemotePrefix + `/</span></div>
+<div><b>Remoto</b><span>Arvore da conta (raiz)</span></div>
 <div><b>Intervalo</b><span>` + fmt.Sprintf("%d s", cfg.IntervalSec) + `</span></div>
 </div>
 <div class="row">
@@ -291,10 +286,18 @@ func loadConfig(path string) (Config, error) {
 	return cfg, err
 }
 
+// normalizeConfig clears legacy per-device prefixes so every client uses the account root tree.
+func normalizeConfig(cfg *Config) bool {
+	changed := cfg.RemotePrefixLegacy != ""
+	cfg.RemotePrefixLegacy = ""
+	return changed
+}
+
 func saveConfig(path string, cfg Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	normalizeConfig(&cfg)
 	b, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
