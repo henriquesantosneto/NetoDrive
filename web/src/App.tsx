@@ -4,19 +4,23 @@ import {
   createDir,
   deleteFile,
   downloadUrl,
+  emptyTrash,
   FileMeta,
   formatSize,
   getToken,
   listFiles,
   listGallery,
+  listTrash,
   login,
   openUrl,
+  purgeFromTrash,
+  restoreFromTrash,
   setToken,
   uploadFile,
 } from "./api";
 
 type Preview = { path: string; name: string; mime: string };
-type View = "files" | "gallery";
+type View = "files" | "gallery" | "trash";
 
 export default function App() {
   const [token, setTok] = useState(getToken());
@@ -109,6 +113,9 @@ function Drive({ onLogout }: { onLogout: () => void }) {
         if (view === "gallery") {
           const res = await listGallery(120, 0);
           setFiles(res.items);
+        } else if (view === "trash") {
+          const res = await listTrash();
+          setFiles(res.items);
         } else {
           const res = await listFiles(nextPath);
           setFiles(res.files);
@@ -157,7 +164,7 @@ function Drive({ onLogout }: { onLogout: () => void }) {
   }
 
   async function onDelete(f: FileMeta) {
-    if (!window.confirm(`Mover "${f.name}" para excluídos?`)) return;
+    if (!window.confirm(`Mover "${f.name}" para a lixeira?`)) return;
     try {
       await deleteFile(f.path);
       if (preview?.path === f.path) setPreview(null);
@@ -167,8 +174,38 @@ function Drive({ onLogout }: { onLogout: () => void }) {
     }
   }
 
+  async function onRestore(f: FileMeta) {
+    try {
+      await restoreFromTrash(f.path);
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao restaurar");
+    }
+  }
+
+  async function onPurge(f: FileMeta) {
+    if (!window.confirm(`Excluir definitivamente "${f.name}"? Isso nao pode ser desfeito.`)) return;
+    try {
+      await purgeFromTrash(f.path);
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao excluir");
+    }
+  }
+
+  async function onEmptyTrash() {
+    if (!window.confirm("Esvaziar a lixeira? Todos os itens serao excluidos definitivamente.")) return;
+    try {
+      await emptyTrash();
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao esvaziar");
+    }
+  }
+
   const crumbs = path ? path.split("/") : [];
-  const title = view === "gallery" ? "Galeria" : path ? crumbs[crumbs.length - 1] : "Meus arquivos";
+  const title =
+    view === "gallery" ? "Galeria" : view === "trash" ? "Lixeira" : path ? crumbs[crumbs.length - 1] : "Meus arquivos";
 
   return (
     <div className="shell">
@@ -251,6 +288,16 @@ function Drive({ onLogout }: { onLogout: () => void }) {
         >
           <span className="nav-icon">And</span> Do Android
         </button>
+        <button
+          type="button"
+          className={`nav-item ${view === "trash" ? "active" : ""}`}
+          onClick={() => {
+            setView("trash");
+            setPreview(null);
+          }}
+        >
+          <span className="nav-icon">Lz</span> Lixeira
+        </button>
       </aside>
 
       <main className="main">
@@ -273,6 +320,10 @@ function Drive({ onLogout }: { onLogout: () => void }) {
                 );
               })}
             </nav>
+          ) : view === "trash" ? (
+            <p className="muted" style={{ margin: "0.35rem 0 0" }}>
+              Itens excluidos. Restaure ou apague definitivamente.
+            </p>
           ) : (
             <p className="muted" style={{ margin: "0.35rem 0 0" }}>
               Fotos sincronizadas dos dispositivos (modo cache no Android)
@@ -300,6 +351,11 @@ function Drive({ onLogout }: { onLogout: () => void }) {
               </button>
             </>
           ) : null}
+          {view === "trash" ? (
+            <button className="btn danger" onClick={() => void onEmptyTrash()}>
+              Esvaziar lixeira
+            </button>
+          ) : null}
           <button className="btn secondary" onClick={() => refresh(path)} disabled={pending}>
             Atualizar
           </button>
@@ -309,8 +365,12 @@ function Drive({ onLogout }: { onLogout: () => void }) {
         <div className="file-table">
           {filtered.length === 0 ? (
             <div className="empty">
-              <h3>{pending ? "Carregando…" : "Esta pasta está vazia"}</h3>
-              <p>Envie arquivos pela web, pelo cliente Windows ou sincronize a galeria no Android.</p>
+              <h3>{pending ? "Carregando…" : view === "trash" ? "Lixeira vazia" : "Esta pasta está vazia"}</h3>
+              <p>
+                {view === "trash"
+                  ? "Arquivos excluidos aparecem aqui ate a exclusao definitiva."
+                  : "Envie arquivos pela web, pelo cliente Windows ou sincronize a galeria no Android."}
+              </p>
             </div>
           ) : (
             <table>
@@ -328,11 +388,11 @@ function Drive({ onLogout }: { onLogout: () => void }) {
                     <td>
                       <div className="file-name-cell">
                         <span className={`icon-tile ${tileClass(f)}`}>{tileLabel(f)}</span>
-                        {f.is_dir ? (
+                        {view !== "trash" && f.is_dir ? (
                           <button type="button" className="linkish" onClick={() => refresh(f.path)}>
                             {f.name}
                           </button>
-                        ) : (
+                        ) : view !== "trash" && !f.is_dir ? (
                           <button
                             type="button"
                             className="linkish"
@@ -340,6 +400,8 @@ function Drive({ onLogout }: { onLogout: () => void }) {
                           >
                             {f.name}
                           </button>
+                        ) : (
+                          <span>{f.name}</span>
                         )}
                       </div>
                     </td>
@@ -347,22 +409,35 @@ function Drive({ onLogout }: { onLogout: () => void }) {
                     <td className="muted">{f.is_dir ? "—" : formatSize(f.size)}</td>
                     <td>
                       <div className="row-actions">
-                        {!f.is_dir ? (
+                        {view === "trash" ? (
                           <>
-                            <button
-                              className="btn ghost"
-                              onClick={() => setPreview({ path: f.path, name: f.name, mime: f.mime })}
-                            >
-                              Abrir
+                            <button className="btn ghost" onClick={() => void onRestore(f)}>
+                              Restaurar
                             </button>
-                            <a className="btn ghost" href={downloadUrl(f.path)} download={f.name}>
-                              Baixar
-                            </a>
+                            <button className="btn ghost" onClick={() => void onPurge(f)}>
+                              Excluir definitivo
+                            </button>
                           </>
-                        ) : null}
-                        <button className="btn ghost" onClick={() => void onDelete(f)}>
-                          Excluir
-                        </button>
+                        ) : (
+                          <>
+                            {!f.is_dir ? (
+                              <>
+                                <button
+                                  className="btn ghost"
+                                  onClick={() => setPreview({ path: f.path, name: f.name, mime: f.mime })}
+                                >
+                                  Abrir
+                                </button>
+                                <a className="btn ghost" href={downloadUrl(f.path)} download={f.name}>
+                                  Baixar
+                                </a>
+                              </>
+                            ) : null}
+                            <button className="btn ghost" onClick={() => void onDelete(f)}>
+                              Excluir
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

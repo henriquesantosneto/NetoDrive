@@ -149,6 +149,80 @@ func TestUploadDownloadOpenAndGallery(t *testing.T) {
 	}
 }
 
+func TestTrashRestoreAndPurge(t *testing.T) {
+	ts, _ := setup(t)
+	token := login(t, ts.URL)
+	content := []byte("trash-me")
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/sync/upload", bytes.NewReader(content))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-File-Path", "tmp/delete-me.txt")
+	req.Header.Set("X-Device-Id", "test")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+
+	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/api/files/tmp/delete-me.txt", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("soft delete %d", res.StatusCode)
+	}
+
+	req, _ = http.NewRequest(http.MethodGet, ts.URL+"/api/trash", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if !bytes.Contains(body, []byte("delete-me.txt")) {
+		t.Fatalf("trash missing file: %s", body)
+	}
+
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/api/trash/restore/tmp/delete-me.txt", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("restore %d", res.StatusCode)
+	}
+
+	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/api/files/tmp/delete-me.txt", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, _ = http.DefaultClient.Do(req)
+	res.Body.Close()
+
+	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/api/trash/purge/tmp/delete-me.txt", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("purge %d", res.StatusCode)
+	}
+
+	req, _ = http.NewRequest(http.MethodGet, ts.URL+"/api/trash", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, _ = http.DefaultClient.Do(req)
+	body, _ = io.ReadAll(res.Body)
+	res.Body.Close()
+	if bytes.Contains(body, []byte("delete-me.txt")) {
+		t.Fatalf("still in trash after purge: %s", body)
+	}
+}
+
 func TestManifestSync(t *testing.T) {
 	ts, _ := setup(t)
 	token := login(t, ts.URL)

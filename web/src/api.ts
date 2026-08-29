@@ -109,6 +109,22 @@ export function listGallery(limit = 60, offset = 0) {
   return request<{ items: FileMeta[] }>(`/api/gallery?${q}`);
 }
 
+export function listTrash() {
+  return request<{ items: FileMeta[] }>("/api/trash");
+}
+
+export function restoreFromTrash(path: string) {
+  return request<FileMeta>(`/api/trash/restore/${encodePath(path)}`, { method: "POST" });
+}
+
+export function purgeFromTrash(path: string) {
+  return request<{ purged: boolean }>(`/api/trash/purge/${encodePath(path)}`, { method: "DELETE" });
+}
+
+export function emptyTrash() {
+  return request<{ purged: number }>("/api/trash", { method: "DELETE" });
+}
+
 function encodePath(path: string) {
   return path
     .split("/")

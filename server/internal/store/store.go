@@ -395,6 +395,116 @@ func (s *Store) SoftDelete(userID int64, path string) (*FileMeta, error) {
 	return f, nil
 }
 
+func (s *Store) ListTrash(userID int64) ([]FileMeta, error) {
+	rows, err := s.DB.Query(`
+SELECT id, user_id, path, name, is_dir, size, hash, mime, mtime, deleted, version,
+       device_id, gallery_key, width, height, taken_at
+FROM files WHERE user_id=? AND deleted=1 ORDER BY mtime DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FileMeta
+	for rows.Next() {
+		f, err := scanFile(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) Restore(userID int64, path string) (*FileMeta, error) {
+	f, err := s.GetFileByPath(userID, path)
+	if err != nil {
+		return nil, err
+	}
+	if !f.Deleted {
+		return f, nil
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	ver, err := nextVersionTx(tx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(`UPDATE files SET deleted=0, version=? WHERE id=?`, ver, f.ID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO changes(user_id, file_id, action, version, created_at) VALUES(?,?,?,?,?)`,
+		userID, f.ID, "upsert", ver, time.Now().UTC().Format(time.RFC3339Nano),
+	); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	f.Deleted = false
+	f.Version = ver
+	return f, nil
+}
+
+// Purge permanently removes a soft-deleted file and deletes the blob if unused.
+func (s *Store) Purge(userID int64, path string) error {
+	f, err := s.GetFileByPath(userID, path)
+	if err != nil {
+		return err
+	}
+	if !f.Deleted {
+		return fmt.Errorf("file is not in trash; move to trash first")
+	}
+	hash := f.Hash
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec(`DELETE FROM changes WHERE file_id=?`, f.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM files WHERE id=?`, f.ID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if hash != "" && !f.IsDir {
+		s.maybeRemoveBlob(hash)
+	}
+	return nil
+}
+
+func (s *Store) EmptyTrash(userID int64) (int, error) {
+	items, err := s.ListTrash(userID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, f := range items {
+		if err := s.Purge(userID, f.Path); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+func (s *Store) maybeRemoveBlob(hash string) {
+	var n int
+	err := s.DB.QueryRow(`SELECT COUNT(*) FROM files WHERE hash=? AND deleted=0`, hash).Scan(&n)
+	if err != nil || n > 0 {
+		return
+	}
+	_ = os.Remove(s.BlobPath(hash))
+}
+
 func nextVersionTx(tx *sql.Tx, userID int64) (int64, error) {
 	var v sql.NullInt64
 	err := tx.QueryRow(`SELECT MAX(version) FROM files WHERE user_id=?`, userID).Scan(&v)

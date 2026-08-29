@@ -44,6 +44,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/open/", s.withAuth(s.handleOpen))
 	mux.HandleFunc("/api/gallery", s.withAuth(s.handleGallery))
 	mux.HandleFunc("/api/gallery/sync", s.withAuth(s.handleGallerySync))
+	mux.HandleFunc("/api/trash", s.withAuth(s.handleTrash))
+	mux.HandleFunc("/api/trash/", s.withAuth(s.handleTrashItem))
 
 	// Static web UI (optional)
 	exeDir := ""
@@ -480,6 +482,87 @@ func (s *Server) handleGallerySync(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set("X-File-Path", "Gallery/"+name)
 	}
 	s.handleUpload(w, r)
+}
+
+func (s *Server) handleTrash(w http.ResponseWriter, r *http.Request) {
+	c := claimsFrom(r)
+	switch r.Method {
+	case http.MethodGet:
+		items, err := s.Store.ListTrash(c.UserID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if items == nil {
+			items = []store.FileMeta{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	case http.MethodDelete:
+		// Empty trash
+		n, err := s.Store.EmptyTrash(c.UserID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"purged": n})
+	default:
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (s *Server) handleTrashItem(w http.ResponseWriter, r *http.Request) {
+	c := claimsFrom(r)
+	rest := strings.TrimPrefix(r.URL.Path, "/api/trash/")
+	action, p, ok := strings.Cut(rest, "/")
+	if !ok {
+		// /api/trash/restore with body, or path only for purge
+		action = rest
+		p = ""
+	}
+	p = strings.Trim(path.Clean("/"+p), "/")
+
+	switch r.Method {
+	case http.MethodPost:
+		if action != "restore" {
+			writeErr(w, http.StatusBadRequest, "use /api/trash/restore/<path>")
+			return
+		}
+		if p == "" || p == "." {
+			var body struct {
+				Path string `json:"path"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			p = strings.Trim(body.Path, "/")
+		}
+		if p == "" {
+			writeErr(w, http.StatusBadRequest, "path required")
+			return
+		}
+		f, err := s.Store.Restore(c.UserID, p)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, f)
+	case http.MethodDelete:
+		// Permanent delete: /api/trash/purge/<path> or /api/trash/<path>
+		if action == "purge" {
+			// p already set from Cut
+		} else if action != "" && p == "" {
+			p = action
+		}
+		if p == "" || p == "." {
+			writeErr(w, http.StatusBadRequest, "path required")
+			return
+		}
+		if err := s.Store.Purge(c.UserID, p); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"purged": true, "path": p})
+	default:
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
 }
 
 func detectMime(p string) string {
