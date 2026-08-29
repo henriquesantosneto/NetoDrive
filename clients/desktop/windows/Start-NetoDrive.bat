@@ -15,13 +15,11 @@ if not exist "%CFG%" (
   notepad "%CFG%"
 )
 
-REM Provider CFAPI: encerra instancia anterior, re-registra e sobe o provider
+REM Provider CFAPI: reinicia o provider; registra no Explorer so se local_folder mudou ou falta registro
 if exist "%~dp0netodrive-provider.exe" (
   taskkill /IM netodrive-provider.exe /F >nul 2>&1
-  timeout /t 2 /nobreak >nul
-  "%~dp0netodrive-provider.exe" -unregister -config "%CFG%"
-  "%~dp0netodrive-provider.exe" -register -config "%CFG%"
-  "%~dp0netodrive-provider.exe" -status -config "%CFG%"
+  timeout /t 1 /nobreak >nul
+  "%~dp0netodrive-provider.exe" -ensure-register -config "%CFG%"
   start "" /B "%~dp0netodrive-provider.exe" -run -config "%CFG%"
 )
 

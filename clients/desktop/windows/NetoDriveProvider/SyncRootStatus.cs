@@ -42,7 +42,7 @@ internal static class SyncRootStatus
             return 1;
         }
 
-        var ok = false;
+        var ok = IsRegisteredForFolder(expected, installDir, roots);
         Console.WriteLine("Explorer (acesso rapido / barra lateral):");
         foreach (var (id, path) in roots)
         {
@@ -52,8 +52,6 @@ internal static class SyncRootStatus
                 status = "ERRADO (pasta do programa, nao e local_folder)";
             else if (!norm.Equals(expected, StringComparison.OrdinalIgnoreCase))
                 status = "DIVERGENTE";
-            else
-                ok = true;
 
             Console.WriteLine($"  [{status}] {path}");
             Console.WriteLine($"           id: {id}");
@@ -76,16 +74,33 @@ internal static class SyncRootStatus
         return 0;
     }
 
-    internal static void ConfirmRegistration(AppConfig cfg)
+    /// <summary>True when Explorer sync root matches local_folder (not the install dir).</summary>
+    internal static bool IsRegisteredFor(AppConfig cfg)
     {
         var expected = Normalize(cfg.LocalFolder);
-        foreach (var (_, path) in ListNetoDriveRoots())
+        var installDir = Normalize(InstallDir);
+        return IsRegisteredForFolder(expected, installDir, ListNetoDriveRoots());
+    }
+
+    private static bool IsRegisteredForFolder(string expected, string installDir, List<(string id, string path)> roots)
+    {
+        foreach (var (_, path) in roots)
         {
-            if (Normalize(path).Equals(expected, StringComparison.OrdinalIgnoreCase))
-            {
-                Console.WriteLine($"Explorer (acesso rapido): {path}");
-                return;
-            }
+            var norm = Normalize(path);
+            if (norm.Equals(installDir, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (norm.Equals(expected, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    internal static void ConfirmRegistration(AppConfig cfg)
+    {
+        if (IsRegisteredFor(cfg))
+        {
+            Console.WriteLine($"Explorer (acesso rapido): {Normalize(cfg.LocalFolder)}");
+            return;
         }
         Console.Error.WriteLine(
             "AVISO: registro concluido mas Explorer ainda nao lista a pasta esperada. " +

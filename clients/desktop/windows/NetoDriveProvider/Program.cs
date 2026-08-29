@@ -40,6 +40,14 @@ internal static class Program
                     Console.WriteLine("Sync root registrado.");
                     return 0;
 
+                case "-ensure-register":
+                    if (SyncRootStatus.IsRegisteredFor(cfg))
+                        return 0;
+                    Console.WriteLine("Registrando sync root para local_folder...");
+                    SyncRootRegistrar.Register(cfg, cfgPath);
+                    Console.WriteLine("Sync root registrado.");
+                    return 0;
+
                 case "-status":
                     return SyncRootStatus.Report(cfg, cfgPath);
 
@@ -96,7 +104,7 @@ internal static class Program
     private static void PrintUsage()
     {
         Console.WriteLine("""
-            netodrive-provider -register | -unregister | -run | -status | -placeholder <rel> <hash> <size> | -remove <rel>
+            netodrive-provider -register | -ensure-register | -unregister | -run | -status | -placeholder <rel> <hash> <size> | -remove <rel>
               -config <path>   (opcional, padrao %APPDATA%\\NetoDrive\\netodrive.json)
             """);
     }

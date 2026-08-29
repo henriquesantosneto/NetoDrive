@@ -512,12 +512,33 @@ func normalizeConfig(cfg *Config) bool {
 	return changed
 }
 
+func suggestedAlternateSyncFolder(home, current string) string {
+	currentAbs, err := filepath.Abs(current)
+	if err != nil {
+		currentAbs = current
+	}
+	for _, candidate := range []string{
+		filepath.Join(home, "NetoDriveSync"),
+		filepath.Join(home, "NetoDriveData"),
+		filepath.Join(home, "Documents", "NetoDriveData"),
+	} {
+		abs, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+		if !strings.EqualFold(abs, currentAbs) {
+			return candidate
+		}
+	}
+	return filepath.Join(home, "NetoDriveSync")
+}
+
 func warnLocalFolderIssues(abs string) {
 	home, _ := os.UserHomeDir()
 	repoClone := filepath.Join(home, "NetoDrive")
 	if abs == repoClone || looksLikeRepoRoot(abs) {
 		fmt.Fprintf(os.Stderr, "Aviso: local_folder aponta para o projeto git (%s).\n", abs)
-		fmt.Fprintf(os.Stderr, "         Recomendado: pasta separada, ex. %s\n", syncer.DefaultSyncFolder())
+		fmt.Fprintf(os.Stderr, "         Recomendado: pasta separada, ex. %s\n", suggestedAlternateSyncFolder(home, abs))
 	}
 	if runtime.GOOS == "windows" && syncer.IsUnderOneDrive(abs) {
 		fmt.Fprintf(os.Stderr, "Aviso: local_folder esta dentro do OneDrive (%s).\n", abs)
