@@ -124,6 +124,7 @@ internal static class PlaceholderManager
         CfPlaceholderOps.SetPinState(full, CF_PIN_STATE.CF_PIN_STATE_PINNED);
         CfPlaceholderOps.Hydrate(full);
         PlaceholderCatalog.SetCloudOnly(cfg, rel, false);
+        LocalChangesQueue.EnqueuePinOp(cfg, "pin", rel);
         Console.WriteLine($"pinned: {rel}");
     }
 
@@ -134,6 +135,7 @@ internal static class PlaceholderManager
             return;
         CfPlaceholderOps.Dehydrate(full);
         PlaceholderCatalog.SetCloudOnly(cfg, rel, true);
+        LocalChangesQueue.EnqueuePinOp(cfg, "unpin", rel);
         Console.WriteLine($"dehydrated: {rel}");
     }
 
@@ -144,6 +146,7 @@ internal static class PlaceholderManager
             throw new FileNotFoundException($"arquivo nao encontrado: {rel}", full);
         CfPlaceholderOps.Hydrate(full);
         PlaceholderCatalog.SetCloudOnly(cfg, rel, false);
+        LocalChangesQueue.EnqueuePinOp(cfg, "pin", rel);
         Console.WriteLine($"hydrated: {rel}");
     }
 

@@ -71,7 +71,16 @@ internal static class PlaceholderCatalog
         var key = MetaKeyFromRel(rel);
         var path = Path.Combine(MetaStoreRoot(cfg), key + ".json");
         if (!File.Exists(path))
+        {
+            foreach (var entry in AllKnown(cfg))
+            {
+                if (!string.Equals(entry.Rel, rel, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                WriteMeta(cfg, rel, entry.Hash, entry.Size, cloudOnly);
+                return;
+            }
             return;
+        }
         try
         {
             using var doc = JsonDocument.Parse(File.ReadAllText(path));
@@ -79,18 +88,42 @@ internal static class PlaceholderCatalog
             var size = doc.RootElement.TryGetProperty("size", out var s) && s.TryGetInt64(out var n) ? n : 0L;
             if (hash.Length == 0)
                 return;
-            var payload = JsonSerializer.Serialize(new
-            {
-                hash,
-                size,
-                cloud_only = cloudOnly,
-            });
-            File.WriteAllText(path, payload);
+            WriteMeta(cfg, rel, hash, size, cloudOnly);
         }
         catch (IOException ex)
         {
             Console.Error.WriteLine($"set cloud_only {rel}: {ex.Message}");
         }
+    }
+
+    internal static void MoveMeta(AppConfig cfg, string fromRel, string toRel)
+    {
+        fromRel = fromRel.Replace('\\', '/').Trim('/');
+        toRel = toRel.Replace('\\', '/').Trim('/');
+        if (string.IsNullOrEmpty(fromRel) || string.IsNullOrEmpty(toRel))
+            return;
+
+        var fromPath = Path.Combine(MetaStoreRoot(cfg), MetaKeyFromRel(fromRel) + ".json");
+        var toPath = Path.Combine(MetaStoreRoot(cfg), MetaKeyFromRel(toRel) + ".json");
+        if (!File.Exists(fromPath))
+            return;
+        Directory.CreateDirectory(Path.GetDirectoryName(toPath)!);
+        if (File.Exists(toPath))
+            File.Delete(toPath);
+        File.Move(fromPath, toPath);
+    }
+
+    private static void WriteMeta(AppConfig cfg, string rel, string hash, long size, bool cloudOnly)
+    {
+        var path = Path.Combine(MetaStoreRoot(cfg), MetaKeyFromRel(rel) + ".json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var payload = JsonSerializer.Serialize(new
+        {
+            hash,
+            size,
+            cloud_only = cloudOnly,
+        });
+        File.WriteAllText(path, payload);
     }
 
     internal static void RemoveMeta(AppConfig cfg, string rel)

@@ -324,6 +324,13 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	}
 
 	if HasPendingLocalChanges(localRoot) {
+		if err := applyPendingPinOps(statePath, localRoot); err != nil {
+			return err
+		}
+		syncLog("sync: aplicando renames locais pendentes...")
+		if err := applyPendingLocalRenames(c, localRoot, remotePrefix, legacyRemotesFromManifest(man, remotePrefix), &st); err != nil {
+			return err
+		}
 		syncLog("sync: aplicando deletes locais pendentes...")
 		if err := applyPendingLocalDeletes(c, localRoot, remotePrefix, map[string]string{}, &st); err != nil {
 			return err

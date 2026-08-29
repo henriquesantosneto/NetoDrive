@@ -39,6 +39,34 @@ func localRelFromLocal(rel string) string {
 	return rel
 }
 
+func legacyRemotesFromManifest(man *Manifest, remotePrefix string) map[string]string {
+	legacy := map[string]string{}
+	if man == nil {
+		return legacy
+	}
+	for _, e := range man.Files {
+		if e.IsDir {
+			continue
+		}
+		path := e.Path
+		if remotePrefix != "" {
+			if !strings.HasPrefix(path, remotePrefix+"/") && path != remotePrefix {
+				continue
+			}
+			path = strings.TrimPrefix(path, remotePrefix+"/")
+			if e.Path == remotePrefix {
+				continue
+			}
+		}
+		rel, legacyRemote := localRelFromRemote(path)
+		if rel == "" || legacyRemote == "" {
+			continue
+		}
+		legacy[rel] = e.Path
+	}
+	return legacy
+}
+
 func removeEmptyLegacyDirs(localRoot string) {
 	if cfapiProviderActive() {
 		return

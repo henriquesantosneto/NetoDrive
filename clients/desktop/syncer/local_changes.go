@@ -71,6 +71,12 @@ func HasPendingLocalChanges(localRoot string) bool {
 	if set, err := PendingLocalModifySet(localRoot); err == nil && len(set) > 0 {
 		return true
 	}
+	if set, err := PendingLocalRenameSet(localRoot); err == nil && len(set) > 0 {
+		return true
+	}
+	if _, err := os.Stat(pendingPinOpsPath(localRoot)); err == nil {
+		return true
+	}
 	return false
 }
 

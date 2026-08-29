@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace NetoDriveProvider;
 
 /// <summary>
@@ -54,6 +56,51 @@ internal static class LocalChangesQueue
         File.AppendAllText(path, rel + Environment.NewLine);
         Console.WriteLine($"local modify enqueued: {rel}");
     }
+
+    internal static void EnqueuePinOp(AppConfig cfg, string op, string rel)
+    {
+        rel = rel.Replace('\\', '/').Trim('/');
+        op = op.Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(rel) || (op != "pin" && op != "unpin"))
+            return;
+
+        var path = PendingPinOpsPath(cfg);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var line = JsonSerializer.Serialize(new { op, rel });
+        File.AppendAllText(path, line + Environment.NewLine);
+        Console.WriteLine($"local {op} enqueued: {rel}");
+    }
+
+    internal static void EnqueueRename(AppConfig cfg, string fromRel, string toRel)
+    {
+        fromRel = fromRel.Replace('\\', '/').Trim('/');
+        toRel = toRel.Replace('\\', '/').Trim('/');
+        if (string.IsNullOrEmpty(fromRel) || string.IsNullOrEmpty(toRel) ||
+            string.Equals(fromRel, toRel, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var path = PendingRenamesPath(cfg);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var line = JsonSerializer.Serialize(new { from = fromRel, to = toRel });
+        File.AppendAllText(path, line + Environment.NewLine);
+        Console.WriteLine($"local rename enqueued: {fromRel} -> {toRel}");
+    }
+
+    internal static string PendingPinOpsPath(AppConfig cfg) => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "NetoDrive",
+        "local-changes",
+        PlaceholderQueue.SyncRootDataId(cfg.LocalFolder),
+        "pending-pin-ops.jsonl");
+
+    internal static string PendingRenamesPath(AppConfig cfg) => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "NetoDrive",
+        "local-changes",
+        PlaceholderQueue.SyncRootDataId(cfg.LocalFolder),
+        "pending-renames.jsonl");
 
     internal static string PendingModifiesPath(AppConfig cfg) => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),

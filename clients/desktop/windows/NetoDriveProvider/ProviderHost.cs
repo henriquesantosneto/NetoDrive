@@ -20,6 +20,7 @@ internal sealed class ProviderHost : IDisposable
     private static readonly CF_CALLBACK NotifyDeleteCb = OnNotifyDelete;
     private static readonly CF_CALLBACK NotifyFileCloseCb = OnNotifyFileClose;
     private static readonly CF_CALLBACK NotifyDehydrateCb = OnNotifyDehydrate;
+    private static readonly CF_CALLBACK NotifyRenameCb = OnNotifyRename;
 
     private readonly AppConfig _cfg;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(30) };
@@ -61,6 +62,11 @@ internal sealed class ProviderHost : IDisposable
             {
                 Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_DEHYDRATE,
                 Callback = NotifyDehydrateCb,
+            },
+            new()
+            {
+                Type = CF_CALLBACK_TYPE.CF_CALLBACK_TYPE_NOTIFY_RENAME,
+                Callback = NotifyRenameCb,
             },
             CF_CALLBACK_REGISTRATION.CF_CALLBACK_REGISTRATION_END,
         };
@@ -161,6 +167,18 @@ internal sealed class ProviderHost : IDisposable
         }
     }
 
+    private static void OnNotifyRename(in CF_CALLBACK_INFO info, in CF_CALLBACK_PARAMETERS parameters)
+    {
+        try
+        {
+            _active?.HandleNotifyRename(info, parameters);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"NOTIFY_RENAME erro: {ex.Message}");
+        }
+    }
+
     private void HandleNotifyFileClose(in CF_CALLBACK_INFO info, in CF_CALLBACK_PARAMETERS parameters)
     {
         if (parameters.CloseCompletion.Flags.HasFlag(
@@ -186,9 +204,41 @@ internal sealed class ProviderHost : IDisposable
             if (!string.IsNullOrEmpty(rel) && rel != ".")
             {
                 PlaceholderCatalog.SetCloudOnly(_cfg, rel, true);
+                LocalChangesQueue.EnqueuePinOp(_cfg, "unpin", rel);
             }
         }
         AckDehydrate(in info, (NTStatus)0);
+    }
+
+    private void HandleNotifyRename(in CF_CALLBACK_INFO info, in CF_CALLBACK_PARAMETERS parameters)
+    {
+        var sourcePath = info.VolumeDosName + info.NormalizedPath;
+        var targetPath = parameters.Rename.TargetPath ?? "";
+        if (string.IsNullOrEmpty(targetPath))
+        {
+            AckRename(in info, (NTStatus)0);
+            return;
+        }
+
+        if (!sourcePath.StartsWith(_cfg.LocalFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            AckRename(in info, (NTStatus)0);
+            return;
+        }
+
+        var fromRel = Path.GetRelativePath(_cfg.LocalFolder, sourcePath).Replace('\\', '/').Trim('/');
+        var toRel = targetPath.StartsWith(_cfg.LocalFolder, StringComparison.OrdinalIgnoreCase)
+            ? Path.GetRelativePath(_cfg.LocalFolder, targetPath).Replace('\\', '/').Trim('/')
+            : Path.GetFileName(targetPath).Replace('\\', '/').Trim('/');
+
+        if (!string.IsNullOrEmpty(fromRel) && fromRel != "." &&
+            !string.IsNullOrEmpty(toRel) && toRel != "." && !string.Equals(fromRel, toRel, StringComparison.OrdinalIgnoreCase))
+        {
+            PlaceholderCatalog.MoveMeta(_cfg, fromRel, toRel);
+            LocalChangesQueue.EnqueueRename(_cfg, fromRel, toRel);
+        }
+
+        AckRename(in info, (NTStatus)0);
     }
 
     private void HandleNotifyDelete(in CF_CALLBACK_INFO info)
@@ -355,6 +405,26 @@ internal sealed class ProviderHost : IDisposable
         CfExecute(opInfo, ref opParams).ThrowIfFailed();
     }
 
+    private static void AckRename(in CF_CALLBACK_INFO info, NTStatus status)
+    {
+        var ack = new CF_OPERATION_PARAMETERS.ACKRENAME
+        {
+            Flags = CF_OPERATION_ACK_RENAME_FLAGS.CF_OPERATION_ACK_RENAME_FLAG_NONE,
+            CompletionStatus = status,
+        };
+        var opParams = CF_OPERATION_PARAMETERS.Create(ack);
+        var opInfo = new CF_OPERATION_INFO
+        {
+            StructSize = (uint)Marshal.SizeOf<CF_OPERATION_INFO>(),
+            Type = CF_OPERATION_TYPE.CF_OPERATION_TYPE_ACK_RENAME,
+            ConnectionKey = info.ConnectionKey,
+            TransferKey = info.TransferKey,
+            RequestKey = info.RequestKey,
+            CorrelationVector = info.CorrelationVector,
+        };
+        CfExecute(opInfo, ref opParams).ThrowIfFailed();
+    }
+
     private void HandleFetchData(in CF_CALLBACK_INFO info, in CF_CALLBACK_PARAMETERS parameters)
     {
         var fetch = parameters.FetchData;
@@ -408,6 +478,13 @@ internal sealed class ProviderHost : IDisposable
 
             CfExecute(opInfo, ref opParams).ThrowIfFailed();
             done += read;
+        }
+
+        rel = rel.Replace('\\', '/').Trim('/');
+        if (!string.IsNullOrEmpty(rel) && rel != "." && done > 0)
+        {
+            PlaceholderCatalog.SetCloudOnly(_cfg, rel, false);
+            LocalChangesQueue.EnqueuePinOp(_cfg, "pin", rel);
         }
     }
 
