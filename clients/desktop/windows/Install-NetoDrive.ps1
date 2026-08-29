@@ -108,19 +108,24 @@ if ($dotnet) {
   Write-Host "Compilando integracao nativa do Explorer (CFAPI + menu)..."
   $providerDir = Join-Path $Root "NetoDriveProvider"
   $shellDir = Join-Path $Root "NetoDriveShell"
-  if (Test-Path $providerDir) {
+    if (Test-Path $providerDir) {
     Push-Location $providerDir
     dotnet publish -c Release -r win-x64 --self-contained false -o $InstallDir
     if ($LASTEXITCODE -ne 0) { Pop-Location; throw "Falha ao compilar netodrive-provider" }
     Pop-Location
     $providerExe = Join-Path $InstallDir "netodrive-provider.exe"
     if (Test-Path $providerExe) {
+      Get-Process netodrive-provider -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+      Start-Sleep -Seconds 2
       & $providerExe -unregister -config $cfg 2>$null
       $regOut = & $providerExe -register -config $cfg 2>&1
       $regOut | ForEach-Object { Write-Host $_ }
       if ($LASTEXITCODE -ne 0) {
         Write-Host ""
-        Write-Host "AVISO: registro CFAPI falhou." -ForegroundColor Yellow
+        Write-Host "AVISO: registro CFAPI falhou (codigo $LASTEXITCODE)." -ForegroundColor Yellow
+        Write-Host "  Feche o Explorer, encerre netodrive-provider e tente:" -ForegroundColor Yellow
+        Write-Host "    & '$providerExe' -unregister -config '$cfg'" -ForegroundColor Yellow
+        Write-Host "    & '$providerExe' -register -config '$cfg'" -ForegroundColor Yellow
         Write-Host "  Causa comum: pasta dentro do OneDrive (Documents)." -ForegroundColor Yellow
         $suggested = Join-Path $env:USERPROFILE "NetoDrive"
         Write-Host "  Edite $cfg e defina:" -ForegroundColor Yellow

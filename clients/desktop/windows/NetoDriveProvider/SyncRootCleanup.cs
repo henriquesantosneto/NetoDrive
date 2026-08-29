@@ -32,6 +32,8 @@ internal static class SyncRootCleanup
         localFolder = Normalize(localFolder);
         var installDir = Normalize(SyncRootStatus.InstallDir);
 
+        CfSyncRoot.StopProviderProcesses();
+
         try
         {
             foreach (var root in StorageProviderSyncRootManager.GetCurrentSyncRoots())
@@ -73,7 +75,9 @@ internal static class SyncRootCleanup
         }
 
         PurgeRegistry(localFolder, installDir);
-        Thread.Sleep(500);
+
+        CfSyncRoot.Unregister(localFolder);
+        Thread.Sleep(1000);
     }
 
     private static void PurgeRegistry(string localFolder, string installDir)

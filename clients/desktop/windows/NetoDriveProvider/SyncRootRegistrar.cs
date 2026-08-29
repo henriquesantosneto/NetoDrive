@@ -1,4 +1,3 @@
-using Microsoft.Win32;
 using Windows.Security.Cryptography;
 using Windows.Storage;
 using Windows.Storage.Provider;
@@ -7,16 +6,26 @@ using Windows.Storage.Streams;
 namespace NetoDriveProvider;
 
 /// <summary>
-/// Registra a pasta de sync no Windows (Explorer nativo + CFAPI via WinRT).
+/// Registra a pasta de sync no Windows (CFAPI + Explorer nativo).
 /// </summary>
 internal static class SyncRootRegistrar
 {
     internal static void Register(AppConfig cfg, string cfgPath)
     {
         SyncRootCleanup.ValidatePath(cfg.LocalFolder);
+        CfSyncRoot.StopProviderProcesses();
         SyncRootCleanup.DeepUnregister(cfg.LocalFolder);
 
         Directory.CreateDirectory(cfg.LocalFolder);
+
+        var syncRootId = Paths.SyncRootId;
+        Console.WriteLine($"Registrando sync root: {syncRootId}");
+        var rawJson = JsonConfigReader.ReadLocalFolderRawFromFile(cfgPath);
+        if (!string.IsNullOrWhiteSpace(rawJson))
+            Console.WriteLine($"local_folder (JSON): {rawJson}");
+        Console.WriteLine($"local_folder (Explorer): {cfg.LocalFolder}");
+
+        CfSyncRoot.Register(cfg.LocalFolder, syncRootId);
 
         var folder = StorageFolder.GetFolderFromPathAsync(cfg.LocalFolder).AsTask().GetAwaiter().GetResult();
         var iconExe = Path.Combine(AppContext.BaseDirectory, "netodrive-sync.exe");
@@ -30,13 +39,6 @@ internal static class SyncRootRegistrar
         var iconResource = File.Exists(iconExe)
             ? $"{iconExe},0"
             : "%SystemRoot%\\system32\\imageres.dll,1043";
-
-        var syncRootId = Paths.SyncRootId;
-        Console.WriteLine($"Registrando sync root: {syncRootId}");
-        var rawJson = JsonConfigReader.ReadLocalFolderRawFromFile(cfgPath);
-        if (!string.IsNullOrWhiteSpace(rawJson))
-            Console.WriteLine($"local_folder (JSON): {rawJson}");
-        Console.WriteLine($"local_folder (Explorer): {cfg.LocalFolder}");
 
         var info = new StorageProviderSyncRootInfo
         {
@@ -57,24 +59,20 @@ internal static class SyncRootRegistrar
             Context = CryptographicBuffer.ConvertStringToBinary(syncRootId, BinaryStringEncoding.Utf8),
         };
 
-        StorageProviderSyncRootManager.Register(info);
-        Thread.Sleep(1000);
-        EnsureRegistryUserSyncRootPath(syncRootId, cfg.LocalFolder);
-        SyncRootStatus.ConfirmRegistration(cfg);
-    }
-
-    private static void EnsureRegistryUserSyncRootPath(string syncRootId, string localFolder)
-    {
-        const string basePath = @"Software\Microsoft\Windows\CurrentVersion\Explorer\SyncRootManager";
         try
         {
-            using var key = Registry.CurrentUser.CreateSubKey(Path.Combine(basePath, syncRootId), true);
-            key?.SetValue("UserSyncRootPath", localFolder, RegistryValueKind.String);
+            StorageProviderSyncRootManager.Register(info);
         }
-        catch
+        catch (Exception ex)
         {
-            // WinRT Register ja deve gravar; isto e redundancia
+            throw new InvalidOperationException(
+                $"StorageProviderSyncRootManager.Register falhou para {cfg.LocalFolder}: {ex.Message}\n" +
+                "Feche todas as janelas do Explorer e encerre netodrive-provider.exe, depois rode -unregister e -register.",
+                ex);
         }
+
+        Thread.Sleep(1000);
+        SyncRootStatus.ConfirmRegistration(cfg);
     }
 
     internal static void Unregister(string localFolder)
