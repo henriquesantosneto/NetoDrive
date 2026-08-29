@@ -18,7 +18,7 @@ import (
 	"github.com/netodrive/desktop/syncer"
 )
 
-const buildVersion = "fast-path-cfapi-v12"
+const buildVersion = "fast-path-cfapi-v13"
 
 type Config struct {
 	ServerURL   string `json:"server_url"`

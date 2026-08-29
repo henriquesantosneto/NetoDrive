@@ -85,11 +85,12 @@ internal sealed class ProviderHost : IDisposable
         {
             try
             {
+                ProviderCommandQueue.ProcessPending(_cfg, QueueBatchSize);
                 PlaceholderQueue.ProcessPending(_cfg, QueueBatchSize);
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"placeholder queue: {ex.Message}");
+                Console.Error.WriteLine($"provider queue: {ex.Message}");
             }
         }
     }

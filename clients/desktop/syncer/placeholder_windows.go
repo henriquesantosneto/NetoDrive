@@ -235,16 +235,16 @@ func runProviderCommand(args ...string) error {
 	return nil
 }
 
-func providerPin(rel string) error {
-	return runProviderCommand("-pin", filepath.ToSlash(rel))
+func providerPin(localRoot, rel string) error {
+	return runProviderOp(localRoot, "pin", rel)
 }
 
-func providerHydrate(rel string) error {
-	return runProviderCommand("-hydrate", filepath.ToSlash(rel))
+func providerHydrate(localRoot, rel string) error {
+	return runProviderOp(localRoot, "hydrate", rel)
 }
 
-func providerDehydrate(rel string) error {
-	return runProviderCommand("-dehydrate", filepath.ToSlash(rel))
+func providerDehydrate(localRoot, rel string) error {
+	return runProviderOp(localRoot, "dehydrate", rel)
 }
 
 // ResolveOpenRel maps a double-click path (maybe .lnk) to account-relative path.

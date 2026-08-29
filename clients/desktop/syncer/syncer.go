@@ -600,7 +600,7 @@ func hydratePinnedFromManifest(c *Client, localRoot string, st *SyncState, remot
 			if !IsPlaceholderRel(localRoot, rel) {
 				continue
 			}
-			if err := providerHydrate(rel); err != nil {
+			if err := providerHydrate(localRoot, rel); err != nil {
 				return fmt.Errorf("hydrate pinned %s: %w", rel, err)
 			}
 			continue

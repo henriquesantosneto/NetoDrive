@@ -30,11 +30,11 @@ func deleteLocalFilePlatform(localRoot, rel string) error {
 	return nil
 }
 
-func providerPin(rel string) error { return nil }
+func providerPin(localRoot, rel string) error { return nil }
 
-func providerHydrate(rel string) error { return nil }
+func providerHydrate(localRoot, rel string) error { return nil }
 
-func providerDehydrate(rel string) error { return nil }
+func providerDehydrate(localRoot, rel string) error { return nil }
 
 // ResolveOpenRel maps a path under localRoot to account-relative path.
 func ResolveOpenRel(localRoot, argPath string) string {

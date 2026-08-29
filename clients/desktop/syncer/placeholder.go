@@ -173,29 +173,45 @@ func PinLocalPath(c *Client, localRoot, statePath, target string, onDemand bool)
 	if target == "" {
 		return nil
 	}
+	st, err := LoadStateCached(statePath, localRoot)
+	if err != nil {
+		return err
+	}
 	man, err := c.Manifest()
 	if err != nil {
 		return err
 	}
+	matched := 0
 	for _, e := range man.Files {
 		if e.IsDir {
 			continue
 		}
 		rel, _ := localRelFromRemote(e.Path)
-		if rel == target || strings.HasPrefix(rel, target+"/") {
-			if cfapiProviderActive() {
-				if err := providerPin(rel); err != nil {
-					fmt.Fprintf(os.Stderr, "aviso: fixar %s: %v\n", rel, err)
-				}
+		if rel != target && !strings.HasPrefix(rel, target+"/") {
+			continue
+		}
+		matched++
+		if cfapiProviderActive() {
+			if err := providerPin(localRoot, rel); err != nil {
+				fmt.Fprintf(os.Stderr, "aviso: fixar %s: %v\n", rel, err)
 				continue
 			}
-			if err := HydratePath(c, localRoot, statePath, rel); err != nil {
-				return err
+			if st.Entries == nil {
+				st.Entries = map[string]FileEntry{}
 			}
+			st.Entries[rel] = FileEntry{Hash: e.Hash, Size: e.Size, Availability: AvPinned}
+			st.Known[rel] = e.Hash
+			continue
+		}
+		if err := HydratePath(c, localRoot, statePath, rel); err != nil {
+			return err
 		}
 	}
+	if matched == 0 {
+		return fmt.Errorf("nenhum arquivo remoto encontrado para: %s", target)
+	}
 	if cfapiProviderActive() {
-		return nil
+		return SaveStateCached(statePath, st)
 	}
 	return SyncFolder(c, localRoot, statePath, onDemand)
 }
@@ -212,23 +228,67 @@ func UnpinLocalPath(c *Client, localRoot, statePath, target string, onDemand boo
 	if err != nil {
 		return err
 	}
-	for rel, entry := range st.Entries {
+	man, err := c.Manifest()
+	if err != nil {
+		return err
+	}
+	matched := 0
+	var firstErr error
+	for _, e := range man.Files {
+		if e.IsDir {
+			continue
+		}
+		rel, _ := localRelFromRemote(e.Path)
 		if rel != target && !strings.HasPrefix(rel, target+"/") {
 			continue
 		}
 		if isPinnedPath(st.Pinned, rel) {
 			continue
 		}
+		matched++
 		if cfapiProviderActive() {
-			if err := providerDehydrate(rel); err != nil {
+			if err := providerDehydrate(localRoot, rel); err != nil {
 				fmt.Fprintf(os.Stderr, "aviso: liberar espaco %s: %v\n", rel, err)
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
 			}
+			if err := writePlaceholderMeta(localRoot, rel, placeholderMeta{Hash: e.Hash, Size: e.Size}); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			fmt.Printf("☁ liberado %s\n", rel)
+			if st.Entries == nil {
+				st.Entries = map[string]FileEntry{}
+			}
+			st.Entries[rel] = FileEntry{Hash: e.Hash, Size: e.Size, Availability: AvPlaceholder}
+			st.Known[rel] = e.Hash
 			continue
 		}
-		meta := placeholderMeta{Hash: entry.Hash, Size: entry.Size}
+		entry := st.Entries[rel]
+		hash, size := e.Hash, e.Size
+		if entry.Hash != "" {
+			hash = entry.Hash
+		}
+		if entry.Size > 0 {
+			size = entry.Size
+		}
+		meta := placeholderMeta{Hash: hash, Size: size}
 		if err := releaseToPlaceholder(localRoot, rel, meta); err != nil {
 			return err
 		}
+	}
+	if matched == 0 {
+		return fmt.Errorf("nenhum arquivo remoto encontrado para: %s", target)
+	}
+	if cfapiProviderActive() {
+		if err := SaveStateCached(statePath, st); err != nil {
+			return err
+		}
+		return firstErr
 	}
 	return SyncFolder(c, localRoot, statePath, onDemand)
 }
@@ -279,7 +339,7 @@ func HydratePath(c *Client, localRoot, statePath, rel string) error {
 
 	localPath := placeholderPath(localRoot, rel)
 	if cfapiProviderActive() {
-		if err := providerHydrate(rel); err != nil {
+		if err := providerHydrate(localRoot, rel); err != nil {
 			return err
 		}
 		hash := ""
