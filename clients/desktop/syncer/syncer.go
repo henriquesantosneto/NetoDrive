@@ -239,15 +239,40 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 	}
 	st.ChangeCursor = newCursor
 
+	man, err := c.Manifest()
+	if err != nil {
+		return err
+	}
+	remotePre := map[string]ManifestEntry{}
+	for _, e := range man.Files {
+		if e.IsDir {
+			continue
+		}
+		path := e.Path
+		if remotePrefix != "" {
+			if !strings.HasPrefix(path, remotePrefix+"/") && path != remotePrefix {
+				continue
+			}
+			path = strings.TrimPrefix(path, remotePrefix+"/")
+			if e.Path == remotePrefix {
+				continue
+			}
+		}
+		rel, _ := localRelFromRemote(path)
+		if rel == "" {
+			continue
+		}
+		remotePre[rel] = e
+	}
+	if err := migrateLegacyPlaceholders(localRoot, remotePre, onDemand, st.Pinned); err != nil {
+		return fmt.Errorf("migrate placeholders: %w", err)
+	}
+
 	local, err := scanLocalFiles(localRoot)
 	if err != nil {
 		return err
 	}
 
-	man, err := c.Manifest()
-	if err != nil {
-		return err
-	}
 	remote := map[string]ManifestEntry{}
 	legacyRemotes := map[string]string{}
 	for _, e := range man.Files {
@@ -309,7 +334,7 @@ func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePre
 			continue
 		}
 		if IsPlaceholderFile(localPath) {
-			if meta, ok := readPlaceholderMeta(localPath); ok {
+			if meta, ok := readPlaceholderMetaForPath(localRoot, localPath, rel); ok {
 				if re.Hash == meta.Hash {
 					continue
 				}

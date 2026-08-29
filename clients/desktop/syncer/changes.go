@@ -82,6 +82,7 @@ func deleteLocalFile(localRoot, rel string) error {
 	if rel == "" {
 		return nil
 	}
+	removePlatformPlaceholder(localRoot, rel)
 	abs := filepath.Join(localRoot, filepath.FromSlash(rel))
 	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
 		return err
@@ -151,6 +152,9 @@ func scanLocalFiles(localRoot string) (map[string]string, error) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
+		if strings.HasSuffix(strings.ToLower(rel), ".lnk") && isPlatformPlaceholder(path) {
+			rel = strings.TrimSuffix(rel, ".lnk")
+		}
 		absRel := rel
 		isLegacy := false
 		for _, prefix := range legacyDevicePrefixes {
@@ -169,7 +173,7 @@ func scanLocalFiles(localRoot string) (map[string]string, error) {
 			}
 		}
 		var hash string
-		if meta, ok := readPlaceholderMeta(path); ok {
+		if meta, ok := readPlaceholderMetaForPath(localRoot, path, rel); ok {
 			hash = meta.Hash
 		} else {
 			hash, _, err = FileHash(path)

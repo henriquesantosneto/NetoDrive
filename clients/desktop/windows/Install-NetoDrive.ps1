@@ -54,6 +54,7 @@ Opcoes:
 Write-Host "Usando: $exeSrc"
 Copy-Item $exeSrc (Join-Path $InstallDir "netodrive-sync.exe") -Force
 Copy-Item (Join-Path $Root "Start-NetoDrive.bat") (Join-Path $InstallDir "Start-NetoDrive.bat") -Force
+Copy-Item (Join-Path $Root "OpenPlaceholder.vbs") (Join-Path $InstallDir "OpenPlaceholder.vbs") -Force
 
 $cfg = Join-Path $ConfigDir "netodrive.json"
 if (-not (Test-Path $cfg)) {

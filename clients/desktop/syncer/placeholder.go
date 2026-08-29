@@ -19,7 +19,8 @@ func placeholderPath(localRoot, rel string) string {
 	return filepath.Join(localRoot, filepath.FromSlash(rel))
 }
 
-func IsPlaceholderFile(path string) bool {
+// IsPlaceholderMagicFile reports legacy magic-byte placeholder files.
+func IsPlaceholderMagicFile(path string) bool {
 	b, err := os.ReadFile(path)
 	if err != nil || len(b) < len(placeholderMagic) {
 		return false
@@ -27,19 +28,48 @@ func IsPlaceholderFile(path string) bool {
 	return string(b[:len(placeholderMagic)]) == placeholderMagic
 }
 
-func readPlaceholderMeta(path string) (placeholderMeta, bool) {
-	b, err := os.ReadFile(path)
-	if err != nil || !strings.HasPrefix(string(b), placeholderMagic) {
-		return placeholderMeta{}, false
-	}
-	var meta placeholderMeta
-	if err := json.Unmarshal(b[len(placeholderMagic):], &meta); err != nil {
-		return placeholderMeta{}, false
-	}
-	return meta, true
+func IsPlaceholderFile(path string) bool {
+	return isPlatformPlaceholder(path)
 }
 
-func writePlaceholder(localRoot, rel string, meta placeholderMeta) error {
+func readPlaceholderMeta(path string) (placeholderMeta, bool) {
+	if meta, ok := readPlaceholderMetaFile(path); ok {
+		return meta, true
+	}
+	return placeholderMeta{}, false
+}
+
+func readPlaceholderMetaFile(path string) (placeholderMeta, bool) {
+	if IsPlaceholderMagicFile(path) {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return placeholderMeta{}, false
+		}
+		var meta placeholderMeta
+		if err := json.Unmarshal(b[len(placeholderMagic):], &meta); err != nil {
+			return placeholderMeta{}, false
+		}
+		return meta, true
+	}
+	return placeholderMeta{}, false
+}
+
+func readPlaceholderMetaForPath(localRoot, path, rel string) (placeholderMeta, bool) {
+	if meta, ok := readPlaceholderMetaForRel(localRoot, rel); ok {
+		return meta, true
+	}
+	if meta, ok := readPlaceholderMetaFile(path); ok {
+		return meta, true
+	}
+	if _, err := os.Stat(placeholderDiskPath(localRoot, rel)); err == nil {
+		if meta, ok := readPlaceholderMetaForRel(localRoot, rel); ok {
+			return meta, true
+		}
+	}
+	return placeholderMeta{}, false
+}
+
+func writePlaceholderMagic(localRoot, rel string, meta placeholderMeta) error {
 	path := placeholderPath(localRoot, rel)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -49,15 +79,30 @@ func writePlaceholder(localRoot, rel string, meta placeholderMeta) error {
 		return err
 	}
 	content := append([]byte(placeholderMagic), body...)
-	return os.WriteFile(path, content, 0o644)
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		return err
+	}
+	return writePlaceholderMeta(localRoot, rel, meta)
+}
+
+func writePlaceholder(localRoot, rel string, meta placeholderMeta) error {
+	return writePlatformPlaceholder(localRoot, rel, meta)
 }
 
 func hashForLocalPath(localRoot, rel string) (hash string, isPlaceholder bool, err error) {
-	path := placeholderPath(localRoot, rel)
-	if meta, ok := readPlaceholderMeta(path); ok {
+	content := placeholderPath(localRoot, rel)
+	if meta, ok := readPlaceholderMetaForRel(localRoot, rel); ok {
+		if _, err := os.Stat(placeholderDiskPath(localRoot, rel)); err == nil {
+			return meta.Hash, true, nil
+		}
+		if IsPlaceholderMagicFile(content) {
+			return meta.Hash, true, nil
+		}
+	}
+	if meta, ok := readPlaceholderMetaFile(content); ok {
 		return meta.Hash, true, nil
 	}
-	hash, _, err = FileHash(path)
+	hash, _, err = FileHash(content)
 	return hash, false, err
 }
 
@@ -112,7 +157,6 @@ func UnpinPath(statePath, target string) error {
 	return SaveState(statePath, st)
 }
 
-// PinLocalPath marks a path (file or folder prefix) as always local and hydrates it.
 func PinLocalPath(c *Client, localRoot, statePath, target string, onDemand bool) error {
 	if err := PinPath(statePath, target); err != nil {
 		return err
@@ -120,10 +164,6 @@ func PinLocalPath(c *Client, localRoot, statePath, target string, onDemand bool)
 	target = filepath.ToSlash(strings.Trim(target, "/"))
 	if target == "" {
 		return nil
-	}
-	st, err := LoadState(statePath, localRoot)
-	if err != nil {
-		return err
 	}
 	man, err := c.Manifest()
 	if err != nil {
@@ -140,11 +180,9 @@ func PinLocalPath(c *Client, localRoot, statePath, target string, onDemand bool)
 			}
 		}
 	}
-	_ = st
 	return SyncFolder(c, localRoot, statePath, onDemand)
 }
 
-// UnpinLocalPath removes pin; on-demand mode converts hydrated files back to placeholders.
 func UnpinLocalPath(c *Client, localRoot, statePath, target string, onDemand bool) error {
 	if err := UnpinPath(statePath, target); err != nil {
 		return err
@@ -176,7 +214,6 @@ func loadStateFile(statePath string) (SyncState, error) {
 	return LoadState(statePath, "")
 }
 
-// HydratePath downloads remote content and replaces a placeholder (or creates the file).
 func HydratePath(c *Client, localRoot, statePath, rel string) error {
 	localRoot, err := filepath.Abs(localRoot)
 	if err != nil {
@@ -218,6 +255,7 @@ func HydratePath(c *Client, localRoot, statePath, rel string) error {
 	}
 
 	localPath := placeholderPath(localRoot, rel)
+	removePlatformPlaceholder(localRoot, rel)
 	fmt.Printf("↓ hydrate %s\n", rel)
 	if err := c.Download(remotePath, localPath); err != nil {
 		return err
@@ -238,7 +276,6 @@ func HydratePath(c *Client, localRoot, statePath, rel string) error {
 	return SaveState(statePath, st)
 }
 
-// HydratePinned downloads all placeholders under pinned paths.
 func HydratePinned(c *Client, localRoot, statePath string) error {
 	st, err := LoadState(statePath, localRoot)
 	if err != nil {
@@ -258,12 +295,10 @@ func HydratePinned(c *Client, localRoot, statePath string) error {
 	return nil
 }
 
-// LocalRelFromRemote strips legacy device prefixes from a remote path.
 func LocalRelFromRemote(remotePath string) (rel string, legacyRemote string) {
 	return localRelFromRemote(remotePath)
 }
 
-// HydrateTree downloads a file or all files under a folder prefix.
 func HydrateTree(c *Client, localRoot, statePath, target string) error {
 	target = filepath.ToSlash(strings.Trim(target, "/"))
 	if target == "" {
@@ -296,4 +331,25 @@ func HydrateTree(c *Client, localRoot, statePath, target string) error {
 
 func releaseToPlaceholder(localRoot, rel string, meta placeholderMeta) error {
 	return writePlaceholder(localRoot, rel, meta)
+}
+
+// migrateLegacyPlaceholders rewrites magic-byte placeholders as platform shortcuts (.lnk on Windows).
+func migrateLegacyPlaceholders(localRoot string, remote map[string]ManifestEntry, onDemand bool, pinned []string) error {
+	if !onDemand {
+		return nil
+	}
+	for rel, e := range remote {
+		if isPinnedPath(pinned, rel) {
+			continue
+		}
+		content := placeholderPath(localRoot, rel)
+		if !IsPlaceholderMagicFile(content) {
+			continue
+		}
+		meta := placeholderMeta{Hash: e.Hash, Size: e.Size}
+		if err := writePlaceholder(localRoot, rel, meta); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -140,7 +140,11 @@ func main() {
 	}
 
 	if *openRemote != "" {
-		remote := strings.Trim(strings.ReplaceAll(*openRemote, "\\", "/"), "/")
+		remote := syncer.ResolveOpenRel(cfg.LocalFolder, *openRemote)
+		remote = strings.Trim(strings.ReplaceAll(remote, "\\", "/"), "/")
+		if remote == "" {
+			fatal(fmt.Errorf("caminho invalido: %q", *openRemote))
+		}
 		local := filepath.Join(cfg.LocalFolder, filepath.FromSlash(remote))
 		fmt.Printf("opening remote %s → %s\n", remote, local)
 		if err := syncer.HydratePath(client, cfg.LocalFolder, statePath, remote); err != nil {
