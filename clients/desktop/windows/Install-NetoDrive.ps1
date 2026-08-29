@@ -59,7 +59,7 @@ $cfg = Join-Path $ConfigDir "netodrive.json"
 if (-not (Test-Path $cfg)) {
   & (Join-Path $InstallDir "netodrive-sync.exe") -init -config $cfg
   Write-Host "Config criada em $cfg"
-  Write-Host "Edite server_url para o IP do servidor Linux."
+  Write-Host "Edite server_url e local_folder (padrao: Documents\NetoDrive)."
   notepad $cfg
 }
 

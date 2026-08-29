@@ -233,6 +233,12 @@ func syncFolder(c *Client, localRoot, remotePrefix string) error {
 		if err != nil {
 			return err
 		}
+		if shouldSkipWalkEntry(localRoot, path, info.Name(), info.IsDir()) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if info.IsDir() {
 			return nil
 		}
@@ -241,9 +247,6 @@ func syncFolder(c *Client, localRoot, remotePrefix string) error {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if strings.HasPrefix(filepath.Base(rel), ".") {
-			return nil
-		}
 		hash, _, err := FileHash(path)
 		if err != nil {
 			return err

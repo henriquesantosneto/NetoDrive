@@ -56,9 +56,18 @@ func main() {
 
 	cfg, err := loadConfig(*cfgPath)
 	if err != nil {
-		fatal(err)
+		fatal(fmt.Errorf("config %s: %w", *cfgPath, err))
 	}
-	migrated := normalizeConfig(&cfg)
+	fmt.Printf("Config: %s\n", *cfgPath)
+	migrated := false
+	if cfg.LocalFolder == "" {
+		cfg.LocalFolder = defaultSyncFolder()
+		migrated = true
+	}
+	cfg.LocalFolder = resolveLocalFolder(*cfgPath, cfg.LocalFolder)
+	if normalizeConfig(&cfg) {
+		migrated = true
+	}
 	if cfg.DeviceID == "" {
 		cfg.DeviceID = uuid.NewString()
 		migrated = true
@@ -66,9 +75,7 @@ func main() {
 	if cfg.IntervalSec <= 0 {
 		cfg.IntervalSec = 30
 	}
-	if err := os.MkdirAll(cfg.LocalFolder, 0o755); err != nil {
-		fatal(err)
-	}
+	fmt.Printf("Pasta local de sync: %s\n", cfg.LocalFolder)
 
 	client := syncer.NewClient(cfg.ServerURL, cfg.Token, cfg.DeviceID)
 	if cfg.Token == "" {
@@ -80,6 +87,10 @@ func main() {
 	}
 	if migrated {
 		_ = saveConfig(*cfgPath, cfg)
+	}
+
+	if err := os.MkdirAll(cfg.LocalFolder, 0o755); err != nil {
+		fatal(err)
 	}
 
 	if *openRemote != "" {
@@ -268,9 +279,33 @@ func defaultConfigPath() string {
 func defaultSyncFolder() string {
 	home, _ := os.UserHomeDir()
 	if runtime.GOOS == "windows" {
-		return filepath.Join(home, "NetoDrive")
+		// Evita coincidir com o clone git em %USERPROFILE%\NetoDrive
+		return filepath.Join(home, "Documents", "NetoDrive")
 	}
-	return filepath.Join(home, "NetoDrive")
+	return filepath.Join(home, "Documents", "NetoDrive")
+}
+
+func resolveLocalFolder(cfgPath, folder string) string {
+	folder = strings.TrimSpace(folder)
+	if folder == "" {
+		return defaultSyncFolder()
+	}
+	if filepath.IsAbs(folder) {
+		abs, _ := filepath.Abs(folder)
+		return abs
+	}
+	// Caminhos relativos são relativos ao arquivo de config, não ao CWD
+	base := filepath.Dir(cfgPath)
+	return filepath.Clean(filepath.Join(base, folder))
+}
+
+func looksLikeRepoRoot(dir string) bool {
+	for _, marker := range []string{".git", filepath.Join("server", "go.mod"), filepath.Join("clients", "desktop")} {
+		if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func loadConfig(path string) (Config, error) {
@@ -280,16 +315,36 @@ func loadConfig(path string) (Config, error) {
 		return cfg, err
 	}
 	err = json.Unmarshal(b, &cfg)
-	if cfg.LocalFolder != "" {
-		cfg.LocalFolder, _ = filepath.Abs(cfg.LocalFolder)
-	}
 	return cfg, err
 }
 
-// normalizeConfig clears legacy per-device prefixes so every client uses the account root tree.
+// normalizeConfig clears legacy settings and fixes common misconfiguration.
 func normalizeConfig(cfg *Config) bool {
 	changed := cfg.RemotePrefixLegacy != ""
 	cfg.RemotePrefixLegacy = ""
+
+	home, _ := os.UserHomeDir()
+	repoClone := filepath.Join(home, "NetoDrive")
+	folder := strings.TrimSpace(cfg.LocalFolder)
+	if folder == "" {
+		cfg.LocalFolder = defaultSyncFolder()
+		return true
+	}
+	abs, err := filepath.Abs(folder)
+	if err != nil {
+		abs = folder
+	}
+	// Migra quem apontou sync para a pasta do clone git do projeto
+	if abs == repoClone || looksLikeRepoRoot(abs) {
+		cfg.LocalFolder = defaultSyncFolder()
+		fmt.Fprintf(os.Stderr, "Aviso: local_folder apontava para o projeto git (%s).\n", abs)
+		fmt.Fprintf(os.Stderr, "         Usando pasta de dados: %s\n", cfg.LocalFolder)
+		return true
+	}
+	if abs != cfg.LocalFolder {
+		cfg.LocalFolder = abs
+		changed = true
+	}
 	return changed
 }
 
