@@ -215,12 +215,12 @@ func FileHash(path string) (string, int64, error) {
 	return hex.EncodeToString(h.Sum(nil)), n, nil
 }
 
-// SyncFolder mirrors localRoot with the account tree, including deletions both ways.
-func SyncFolder(c *Client, localRoot, statePath string) error {
-	return syncFolder(c, localRoot, statePath, "")
+// SyncFolder mirrors localRoot with the account tree (placeholders when onDemand is true).
+func SyncFolder(c *Client, localRoot, statePath string, onDemand bool) error {
+	return syncFolder(c, localRoot, statePath, onDemand, "")
 }
 
-func syncFolder(c *Client, localRoot, statePath, remotePrefix string) error {
+func syncFolder(c *Client, localRoot, statePath string, onDemand bool, remotePrefix string) error {
 	localRoot, err := filepath.Abs(localRoot)
 	if err != nil {
 		return err
@@ -231,6 +231,7 @@ func syncFolder(c *Client, localRoot, statePath, remotePrefix string) error {
 	if err != nil {
 		return err
 	}
+	st.OnDemand = onDemand
 
 	newCursor, err := applyRemoteChanges(c, localRoot, st.ChangeCursor)
 	if err != nil {
@@ -302,14 +303,21 @@ func syncFolder(c *Client, localRoot, statePath, remotePrefix string) error {
 
 	for _, rel := range plan.upload {
 		re, ok := remote[rel]
+		localPath := filepath.Join(localRoot, filepath.FromSlash(rel))
 		if ok && re.Hash == local[rel] {
 			continue
+		}
+		if IsPlaceholderFile(localPath) {
+			if meta, ok := readPlaceholderMeta(localPath); ok {
+				if re.Hash == meta.Hash {
+					continue
+				}
+			}
 		}
 		remotePath := rel
 		if remotePrefix != "" {
 			remotePath = remotePrefix + "/" + rel
 		}
-		localPath := filepath.Join(localRoot, filepath.FromSlash(rel))
 		fmt.Printf("↑ %s\n", remotePath)
 		if _, err := c.Upload(localPath, remotePath); err != nil {
 			return fmt.Errorf("upload %s: %w", remotePath, err)
@@ -330,6 +338,13 @@ func syncFolder(c *Client, localRoot, statePath, remotePrefix string) error {
 		if legacyRemote, ok := legacyRemotes[rel]; ok {
 			downloadPath = legacyRemote
 		}
+		if st.OnDemand && !isPinnedPath(st.Pinned, rel) {
+			fmt.Printf("☁ placeholder %s\n", rel)
+			if err := writePlaceholder(localRoot, rel, placeholderMeta{Hash: e.Hash, Size: e.Size}); err != nil {
+				return fmt.Errorf("placeholder %s: %w", rel, err)
+			}
+			continue
+		}
 		fmt.Printf("↓ %s\n", downloadPath)
 		if err := c.Download(downloadPath, localPath); err != nil {
 			return fmt.Errorf("download %s: %w", downloadPath, err)
@@ -340,6 +355,11 @@ func syncFolder(c *Client, localRoot, statePath, remotePrefix string) error {
 		}
 	}
 
+	// Download pinned paths that are still placeholders.
+	if err := hydratePinnedFromManifest(c, localRoot, &st, remote, legacyRemotes); err != nil {
+		return err
+	}
+
 	removeEmptyLegacyDirs(localRoot)
 
 	local, err = scanLocalFiles(localRoot)
@@ -347,6 +367,7 @@ func syncFolder(c *Client, localRoot, statePath, remotePrefix string) error {
 		return err
 	}
 	st.Known = local
+	st.Entries = rebuildEntries(localRoot, local, remote, st)
 
 	newCursor, err = applyRemoteChanges(c, localRoot, st.ChangeCursor)
 	if err != nil {
@@ -355,4 +376,44 @@ func syncFolder(c *Client, localRoot, statePath, remotePrefix string) error {
 	st.ChangeCursor = newCursor
 
 	return SaveState(statePath, st)
+}
+
+func hydratePinnedFromManifest(c *Client, localRoot string, st *SyncState, remote map[string]ManifestEntry, legacyRemotes map[string]string) error {
+	for rel, e := range remote {
+		if !isPinnedPath(st.Pinned, rel) {
+			continue
+		}
+		localPath := placeholderPath(localRoot, rel)
+		if !IsPlaceholderFile(localPath) {
+			if h, _, err := FileHash(localPath); err == nil && h == e.Hash {
+				continue
+			}
+		}
+		downloadPath := e.Path
+		if legacyRemote, ok := legacyRemotes[rel]; ok {
+			downloadPath = legacyRemote
+		}
+		fmt.Printf("↓ pinned %s\n", rel)
+		if err := c.Download(downloadPath, localPath); err != nil {
+			return fmt.Errorf("download pinned %s: %w", rel, err)
+		}
+	}
+	return nil
+}
+
+func rebuildEntries(localRoot string, local map[string]string, remote map[string]ManifestEntry, st SyncState) map[string]FileEntry {
+	entries := map[string]FileEntry{}
+	for rel, hash := range local {
+		entry := FileEntry{Hash: hash, Availability: AvHydrated}
+		if isPinnedPath(st.Pinned, rel) {
+			entry.Availability = AvPinned
+		} else if IsPlaceholderFile(placeholderPath(localRoot, rel)) {
+			entry.Availability = AvPlaceholder
+		}
+		if re, ok := remote[rel]; ok {
+			entry.Size = re.Size
+		}
+		entries[rel] = entry
+	}
+	return entries
 }

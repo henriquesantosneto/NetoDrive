@@ -8,6 +8,9 @@ import com.netodrive.app.databinding.ItemFileBinding
 
 class FileListAdapter(
     private val onClick: (FileMeta) -> Unit,
+    private val onLongClick: (FileMeta) -> Unit,
+    private val isPinned: (String) -> Boolean,
+    private val isLocal: (FileMeta) -> Boolean,
 ) : RecyclerView.Adapter<FileListAdapter.VH>() {
     private val items = mutableListOf<FileMeta>()
 
@@ -27,18 +30,30 @@ class FileListAdapter(
     override fun onBindViewHolder(holder: VH, position: Int) {
         val item = items[position]
         holder.binding.title.text = item.name
+        val state = when {
+            item.isDir && isPinned(item.path) -> "Pasta · fixada neste aparelho"
+            item.isDir -> "Pasta · na nuvem"
+            isPinned(item.path) || isLocal(item) -> "${item.mime} · neste aparelho"
+            else -> "${item.mime} · nuvem (toque para baixar)"
+        }
         holder.binding.subtitle.text = if (item.isDir) {
-            "Pasta"
+            state
         } else {
-            "${item.mime} · ${item.size / 1024} KB"
+            "$state · ${item.size / 1024} KB"
         }
         holder.binding.icon.text = when {
+            item.isDir && isPinned(item.path) -> "PIN"
             item.isDir -> "DIR"
-            item.mime.startsWith("image/") -> "IMG"
-            item.mime.startsWith("video/") -> "VID"
-            else -> "DOC"
+            isPinned(item.path) || isLocal(item) -> "LOC"
+            item.mime.startsWith("image/") -> "CLD"
+            item.mime.startsWith("video/") -> "CLD"
+            else -> "CLD"
         }
         holder.itemView.setOnClickListener { onClick(item) }
+        holder.itemView.setOnLongClickListener {
+            onLongClick(item)
+            true
+        }
     }
 
     class VH(val binding: ItemFileBinding) : RecyclerView.ViewHolder(binding.root)

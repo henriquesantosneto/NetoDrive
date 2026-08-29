@@ -135,8 +135,11 @@ func scanLocalFiles(localRoot string) (map[string]string, error) {
 		if rel == "" {
 			return nil
 		}
-		hash, _, err := FileHash(path)
+		hash, _, err := hashForLocalPath(localRoot, rel)
 		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
 			return err
 		}
 		local[rel] = hash

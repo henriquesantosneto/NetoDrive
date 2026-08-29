@@ -9,12 +9,13 @@ import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import com.netodrive.app.api.NetoDriveApi
 import com.netodrive.app.cache.MediaCache
+import com.netodrive.app.data.PinnedStore
 import com.netodrive.app.data.SessionStore
 import java.io.File
 
 /**
  * Exposes cached/remote files as content:// URIs so other apps can open them.
- * In cache mode the blob is fetched on first open and may later be evicted.
+ * Downloads on first open unless path is pinned (always local).
  */
 class RemoteFileProvider : ContentProvider() {
     override fun onCreate(): Boolean = true
@@ -22,22 +23,24 @@ class RemoteFileProvider : ContentProvider() {
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
         val ctx = context ?: return null
         val session = SessionStore(ctx)
+        val pins = PinnedStore(ctx)
         val path = uri.getQueryParameter("path") ?: return null
         val hash = uri.getQueryParameter("hash") ?: path
         val cache = MediaCache(ctx, session.cacheBudgetBytes)
         val api = NetoDriveApi(session.serverUrl, session.token, session.deviceId)
 
-        val file: File = if (session.cacheMode) {
-            cache.getIfPresent(path, hash) ?: cache.putFromDownload(path, hash) { dest ->
-                api.downloadTo(path, dest)
-            }
-        } else {
-            // Pin: keep under filesDir so it is not budget-trimmed the same way
+        val keepLocal = pins.isPinned(path) || !session.cacheMode
+        val file: File = if (keepLocal) {
             val pinned = File(ctx.filesDir, "pinned/${hash.take(2)}/$hash")
+            pinned.parentFile?.mkdirs()
             if (!pinned.exists()) {
                 api.downloadTo(path, pinned)
             }
             pinned
+        } else {
+            cache.getIfPresent(path, hash) ?: cache.putFromDownload(path, hash) { dest ->
+                api.downloadTo(path, dest)
+            }
         }
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     }

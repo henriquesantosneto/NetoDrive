@@ -36,7 +36,7 @@ echo "== Windows/desktop sync =="
 echo "from-windows" >"$LOCAL/hello.txt"
 mkdir -p "$LOCAL/docs" && echo "doc" >"$LOCAL/docs/note.txt"
 cat >"$DATA/cfg.json" <<EOF
-{"server_url":"http://127.0.0.1:$PORT","token":"$TOKEN","device_id":"e2e-win","local_folder":"$LOCAL","remote_prefix":"","interval_sec":30}
+{"server_url":"http://127.0.0.1:$PORT","token":"$TOKEN","device_id":"e2e-win","local_folder":"$LOCAL","interval_sec":30,"on_demand":false}
 EOF
 "$SYNC" -config "$DATA/cfg.json" -once
 curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/files?path=" | grep -q hello.txt
@@ -81,6 +81,22 @@ rm -f "$LOCAL/localdel.txt"
 "$SYNC" -config "$DATA/cfg.json" -once
 curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/files?path=" | grep -qv localdel.txt
 curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/api/trash" | grep -q localdel.txt
+
+echo "== on-demand placeholders =="
+OD="$(mktemp -d /tmp/netodrive-od-XXXXXX)"
+cat >"$DATA/od.json" <<EOF
+{"server_url":"http://127.0.0.1:$PORT","token":"$TOKEN","device_id":"e2e-od","local_folder":"$OD","interval_sec":30,"on_demand":true}
+EOF
+"$SYNC" -config "$DATA/od.json" -once
+# placeholder marker file, not full payload
+test -f "$OD/hello.txt"
+SIZE=$(wc -c <"$OD/hello.txt")
+if [[ "$SIZE" -gt 200 ]]; then
+  echo "expected small placeholder, got $SIZE bytes" >&2
+  exit 1
+fi
+"$SYNC" -config "$DATA/od.json" -hydrate hello.txt
+grep -q from-windows "$OD/hello.txt"
 
 echo "== cache LRU unit =="
 (cd "$ROOT/server" && go test ./internal/cachelru ./internal/api)

@@ -25,8 +25,17 @@ type Config struct {
 	DeviceID    string `json:"device_id"`
 	LocalFolder string `json:"local_folder"`
 	IntervalSec int    `json:"interval_sec"`
+	// OnDemand: arquivos aparecem como placeholder e baixam ao abrir ou fixar.
+	OnDemand *bool `json:"on_demand,omitempty"`
 	// remote_prefix is ignored (legacy); all devices share the account root tree.
 	RemotePrefixLegacy string `json:"remote_prefix,omitempty"`
+}
+
+func onDemandEnabled(cfg Config) bool {
+	if cfg.OnDemand == nil {
+		return true
+	}
+	return *cfg.OnDemand
 }
 
 func main() {
@@ -35,16 +44,22 @@ func main() {
 	initCfg := flag.Bool("init", false, "write a sample config and exit")
 	ui := flag.Bool("ui", false, "open local OneDrive-style control panel and keep syncing")
 	openRemote := flag.String("open", "", "download/open a remote path (e.g. docs/arquivo.pdf)")
+	pinPath := flag.String("pin", "", "keep path or folder always local (e.g. docs or report.pdf)")
+	unpinPath := flag.String("unpin", "", "release path from local pin (back to cloud placeholder)")
+	hydratePath := flag.String("hydrate", "", "download path now (file or folder prefix)")
 	flag.Parse()
+
+	onDemandDefault := true
 
 	if *initCfg {
 		sample := Config{
-			ServerURL:    "http://127.0.0.1:8080",
-			Username:     "admin",
-			Password:     "admin123",
-			DeviceID:     uuid.NewString(),
-			LocalFolder:  defaultSyncFolder(),
-			IntervalSec:  30,
+			ServerURL:   "http://127.0.0.1:8080",
+			Username:    "admin",
+			Password:    "admin123",
+			DeviceID:    uuid.NewString(),
+			LocalFolder: defaultSyncFolder(),
+			IntervalSec: 30,
+			OnDemand:    &onDemandDefault,
 		}
 		b, _ := json.MarshalIndent(sample, "", "  ")
 		if err := os.WriteFile(*cfgPath, b, 0o600); err != nil {
@@ -76,6 +91,10 @@ func main() {
 		cfg.IntervalSec = 30
 	}
 	fmt.Printf("Pasta local de sync: %s\n", cfg.LocalFolder)
+	onDemand := onDemandEnabled(cfg)
+	if onDemand {
+		fmt.Println("Modo: sob demanda (placeholder — baixa ao abrir ou fixar)")
+	}
 
 	client := syncer.NewClient(cfg.ServerURL, cfg.Token, cfg.DeviceID)
 	if cfg.Token == "" {
@@ -93,11 +112,38 @@ func main() {
 		fatal(err)
 	}
 
+	statePath := syncer.DefaultStatePath(*cfgPath)
+
+	if *pinPath != "" {
+		target := strings.Trim(strings.ReplaceAll(*pinPath, "\\", "/"), "/")
+		if err := syncer.PinLocalPath(client, cfg.LocalFolder, statePath, target, onDemand); err != nil {
+			fatal(err)
+		}
+		fmt.Printf("fixado localmente: %s\n", target)
+		return
+	}
+	if *unpinPath != "" {
+		target := strings.Trim(strings.ReplaceAll(*unpinPath, "\\", "/"), "/")
+		if err := syncer.UnpinLocalPath(client, cfg.LocalFolder, statePath, target, onDemand); err != nil {
+			fatal(err)
+		}
+		fmt.Printf("liberado (nuvem): %s\n", target)
+		return
+	}
+	if *hydratePath != "" {
+		target := strings.Trim(strings.ReplaceAll(*hydratePath, "\\", "/"), "/")
+		if err := syncer.HydrateTree(client, cfg.LocalFolder, statePath, target); err != nil {
+			fatal(err)
+		}
+		fmt.Printf("baixado: %s\n", target)
+		return
+	}
+
 	if *openRemote != "" {
 		remote := strings.Trim(strings.ReplaceAll(*openRemote, "\\", "/"), "/")
 		local := filepath.Join(cfg.LocalFolder, filepath.FromSlash(remote))
 		fmt.Printf("opening remote %s → %s\n", remote, local)
-		if err := client.Download(remote, local); err != nil {
+		if err := syncer.HydratePath(client, cfg.LocalFolder, statePath, remote); err != nil {
 			fatal(err)
 		}
 		if err := openFile(local); err != nil {
@@ -108,8 +154,7 @@ func main() {
 
 	run := func() error {
 		fmt.Printf("[%s] syncing %s ↔ arvore da conta (raiz)\n", time.Now().Format(time.RFC3339), cfg.LocalFolder)
-		statePath := syncer.DefaultStatePath(*cfgPath)
-		if err := syncer.SyncFolder(client, cfg.LocalFolder, statePath); err != nil {
+		if err := syncer.SyncFolder(client, cfg.LocalFolder, statePath, onDemand); err != nil {
 			fmt.Fprintf(os.Stderr, "sync error: %v\n", err)
 			return err
 		}
@@ -120,7 +165,7 @@ func main() {
 	_ = run()
 
 	if *ui {
-		startControlPanel(cfg, client, run)
+		startControlPanel(cfg, *cfgPath, client, onDemand, run)
 		return
 	}
 
@@ -134,20 +179,75 @@ func main() {
 	}
 }
 
-func startControlPanel(cfg Config, client *syncer.Client, run func() error) {
+func startControlPanel(cfg Config, cfgPath string, client *syncer.Client, onDemand bool, run func() error) {
+	statePath := syncer.DefaultStatePath(cfgPath)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(controlPanelHTML(cfg)))
+		_, _ = w.Write([]byte(controlPanelHTML(cfg, onDemand)))
 	})
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{
 			"server_url":   cfg.ServerURL,
 			"local_folder": cfg.LocalFolder,
 			"interval_sec": cfg.IntervalSec,
+			"on_demand":    onDemand,
 			"web_url":      cfg.ServerURL,
 			"remote_tree":  "arvore da conta (raiz)",
 		})
+	})
+	mux.HandleFunc("/api/hydrate", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			Path string `json:"path"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		path := strings.Trim(body.Path, "/")
+		if path == "" {
+			writeJSON(w, map[string]any{"ok": false, "error": "path required"})
+			return
+		}
+		err := syncer.HydrateTree(client, cfg.LocalFolder, statePath, path)
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/pin", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			Path string `json:"path"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		path := strings.Trim(body.Path, "/")
+		if err := syncer.PinLocalPath(client, cfg.LocalFolder, statePath, path, onDemand); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/unpin", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			Path string `json:"path"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		path := strings.Trim(body.Path, "/")
+		if err := syncer.UnpinLocalPath(client, cfg.LocalFolder, statePath, path, onDemand); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
 	})
 	mux.HandleFunc("/api/sync", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -191,7 +291,11 @@ func startControlPanel(cfg Config, client *syncer.Client, run func() error) {
 	}
 }
 
-func controlPanelHTML(cfg Config) string {
+func controlPanelHTML(cfg Config, onDemand bool) string {
+	mode := "Sob demanda — placeholders na pasta; baixe ao abrir ou fixe"
+	if !onDemand {
+		mode = "Espelho completo — todos os arquivos baixados"
+	}
 	return `<!doctype html>
 <html lang="pt-BR"><head>
 <meta charset="utf-8"/>
@@ -199,6 +303,8 @@ func controlPanelHTML(cfg Config) string {
 <style>
 :root{--blue:#0078d4;--bg:#faf9f8;--ink:#242424;--muted:#605e5c;--line:#edebe9;--soft:#deecf9}
 *{box-sizing:border-box}body{margin:0;font-family:"Segoe UI","Noto Sans",sans-serif;background:var(--bg);color:var(--ink)}
+label{display:block;margin-top:12px;font-size:.92rem}
+input{width:100%;margin-top:4px;padding:8px;border:1px solid var(--line)}
 .top{background:var(--blue);color:#fff;padding:12px 20px;display:flex;align-items:center;gap:10px;font-weight:600}
 .mark{width:28px;height:28px;border-radius:6px;background:rgba(255,255,255,.2);display:grid;place-items:center}
 .wrap{max-width:720px;margin:24px auto;padding:0 16px}
@@ -215,6 +321,7 @@ button:hover{filter:brightness(.96)}
 <div class="top"><div class="mark">N</div>NetoDrive — Sincronização</div>
 <div class="wrap"><div class="card">
 <h1>Seus arquivos neste PC</h1>
+<p class="muted">` + mode + `</p>
 <p class="muted">Pasta local espelhada na <strong>arvore principal da conta</strong> — a mesma vista da web e do Android.</p>
 <div class="kv">
 <div><b>Servidor</b><span>` + cfg.ServerURL + `</span></div>
@@ -222,8 +329,14 @@ button:hover{filter:brightness(.96)}
 <div><b>Remoto</b><span>Arvore da conta (raiz)</span></div>
 <div><b>Intervalo</b><span>` + fmt.Sprintf("%d s", cfg.IntervalSec) + `</span></div>
 </div>
+<label>Caminho (arquivo ou pasta)
+<input id="path" placeholder="docs/relatorio.pdf ou Galeria"/>
+</label>
 <div class="row">
 <button onclick="syncNow()">Sincronizar agora</button>
+<button class="secondary" onclick="act('/api/hydrate')">Baixar agora</button>
+<button class="secondary" onclick="act('/api/pin')">Fixar neste PC</button>
+<button class="secondary" onclick="act('/api/unpin')">Liberar espaco</button>
 <button class="secondary" onclick="post('/api/open-folder')">Abrir pasta</button>
 <button class="secondary" onclick="post('/api/open-web')">Abrir NetoDrive na web</button>
 </div>
@@ -231,6 +344,10 @@ button:hover{filter:brightness(.96)}
 </div></div>
 <script>
 async function post(url){const r=await fetch(url,{method:'POST'});const j=await r.json();return j}
+async function act(url){const m=document.getElementById('msg');const path=document.getElementById('path').value.trim();
+if(!path){m.textContent='Informe um caminho.';return}
+const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
+const j=await r.json();m.textContent=j.ok?'OK.':('Erro: '+j.error)}
 async function syncNow(){const m=document.getElementById('msg');m.textContent='Sincronizando…';
 try{const j=await post('/api/sync');m.textContent=j.ok?'Sincronização concluída.':('Erro: '+j.error)}
 catch(e){m.textContent=String(e)}}

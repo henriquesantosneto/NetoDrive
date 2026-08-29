@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -17,6 +18,7 @@ import com.netodrive.app.R
 import com.netodrive.app.api.FileMeta
 import com.netodrive.app.api.NetoDriveApi
 import com.netodrive.app.cache.MediaCache
+import com.netodrive.app.data.PinnedStore
 import com.netodrive.app.data.SessionStore
 import com.netodrive.app.databinding.ActivityMainBinding
 import com.netodrive.app.databinding.FragmentFilesBinding
@@ -32,6 +34,7 @@ import kotlinx.coroutines.withContext
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var session: SessionStore
+    private lateinit var pins: PinnedStore
     private lateinit var cache: MediaCache
 
     private var filesBinding: FragmentFilesBinding? = null
@@ -46,6 +49,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         session = SessionStore(this)
+        pins = PinnedStore(this)
         if (!session.isLoggedIn()) {
             startActivity(Intent(this, LoginActivity::class.java))
             finish()
@@ -55,13 +59,21 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         cache = MediaCache(this, session.cacheBudgetBytes)
 
-        fileAdapter = FileListAdapter(onClick = { item ->
-            if (item.isDir) {
-                browseTo(item.path)
-            } else {
-                openRemote(item)
-            }
-        })
+        fileAdapter = FileListAdapter(
+            onClick = { item ->
+                if (item.isDir) {
+                    browseTo(item.path)
+                } else {
+                    openRemote(item)
+                }
+            },
+            onLongClick = { showFileActions(it) },
+            isPinned = { path -> pins.isPinned(path) },
+            isLocal = { item ->
+                val hash = item.hash.ifBlank { item.path }
+                cache.getIfPresent(item.path, hash) != null
+            },
+        )
         galleryAdapter = GalleryAdapter(
             onOpen = { openRemote(it) },
             thumbLoader = { item, imageView ->
@@ -200,8 +212,91 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateStatus() {
-        val mode = if (session.cacheMode) "cache" else "fixado"
-        binding.statusText.text = mode
+        val mode = if (session.cacheMode) "nuvem+LRU" else "fixado global"
+        val pinCount = pins.all().size
+        binding.statusText.text = if (pinCount > 0) "$mode · $pinCount fixado(s)" else mode
+    }
+
+    private fun showFileActions(item: FileMeta) {
+        val pinned = pins.isPinned(item.path)
+        val options = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+        if (!item.isDir) {
+            options.add(getString(R.string.download_now))
+            actions.add { prefetchFile(item) }
+        }
+        if (pinned) {
+            options.add(getString(R.string.unpin_local))
+            actions.add {
+                pins.unpin(item.path)
+                Toast.makeText(this, "Liberado: ${item.name}", Toast.LENGTH_SHORT).show()
+                browseTo(currentPath)
+                updateStatus()
+            }
+        } else {
+            options.add(getString(R.string.pin_local))
+            actions.add {
+                pins.pin(item.path)
+                if (item.isDir) {
+                    prefetchFolder(item.path)
+                } else {
+                    prefetchFile(item)
+                }
+                Toast.makeText(this, "Fixado: ${item.name}", Toast.LENGTH_SHORT).show()
+                browseTo(currentPath)
+                updateStatus()
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle(item.name)
+            .setItems(options.toTypedArray()) { _, which -> actions[which]() }
+            .show()
+    }
+
+    private fun prefetchFile(item: FileMeta) {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val api = NetoDriveApi(session.serverUrl, session.token, session.deviceId)
+                    val hash = item.hash.ifBlank { item.path }
+                    cache.putFromDownload(item.path, hash) { dest -> api.downloadTo(item.path, dest) }
+                }
+                Toast.makeText(this@MainActivity, "Baixado: ${item.name}", Toast.LENGTH_SHORT).show()
+                browseTo(currentPath)
+            } catch (e: Exception) {
+                Toast.makeText(this@MainActivity, e.message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun prefetchFolder(folderPath: String) {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val api = NetoDriveApi(session.serverUrl, session.token, session.deviceId)
+                    val stack = ArrayDeque<String>()
+                    stack.add(folderPath.trim('/'))
+                    while (stack.isNotEmpty()) {
+                        val path = stack.removeFirst()
+                        val children = api.listFiles(path)
+                        for (child in children) {
+                            if (child.isDir) {
+                                stack.add(child.path)
+                            } else {
+                                val hash = child.hash.ifBlank { child.path }
+                                cache.putFromDownload(child.path, hash) { dest ->
+                                    api.downloadTo(child.path, dest)
+                                }
+                            }
+                        }
+                    }
+                }
+                Toast.makeText(this@MainActivity, "Pasta baixada", Toast.LENGTH_SHORT).show()
+                browseTo(currentPath)
+            } catch (e: Exception) {
+                Toast.makeText(this@MainActivity, e.message, Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun openRemote(item: FileMeta) {

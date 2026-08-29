@@ -14,6 +14,7 @@ var skipDirNames = map[string]bool{
 	".idea":        true,
 	"dist":         true,
 	"target":       true,
+	".netodrive":   true,
 }
 
 func shouldSkipWalkEntry(localRoot, absPath string, name string, isDir bool) bool {

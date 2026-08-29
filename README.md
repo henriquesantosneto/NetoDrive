@@ -65,6 +65,8 @@ Se aparecer uma pasta **`PC`** local que não existe na web, atualize cliente e 
 
 **Exclusões** são sincronizadas nos dois sentidos: apagar na web remove no PC; apagar no PC envia para a lixeira na web.
 
+**Arquivos sob demanda (estilo OneDrive):** por padrão o cliente Windows cria *placeholders* na pasta local (`on_demand: true`). O conteúdo só baixa ao abrir (`-open`), com `-hydrate`, ou ao **fixar** (`-pin`) arquivo/pasta. No Android, arquivos aparecem na nuvem e baixam ao tocar; **toque longo** → Fixar neste aparelho / Baixar agora.
+
 Exemplo:
 ```json
 {

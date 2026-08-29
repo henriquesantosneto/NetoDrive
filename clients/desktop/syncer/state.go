@@ -6,11 +6,28 @@ import (
 	"path/filepath"
 )
 
-// SyncState tracks the last synced snapshot for delete propagation.
+type FileAvailability string
+
+const (
+	AvPlaceholder FileAvailability = "placeholder"
+	AvHydrated    FileAvailability = "hydrated"
+	AvPinned      FileAvailability = "pinned"
+)
+
+type FileEntry struct {
+	Hash         string           `json:"hash"`
+	Size         int64            `json:"size,omitempty"`
+	Availability FileAvailability `json:"availability"`
+}
+
+// SyncState tracks sync snapshot, placeholders and pinned paths.
 type SyncState struct {
-	LocalFolder  string            `json:"local_folder"`
-	ChangeCursor int64             `json:"change_cursor"`
-	Known        map[string]string `json:"known"` // relative path -> content hash
+	LocalFolder  string               `json:"local_folder"`
+	ChangeCursor int64                `json:"change_cursor"`
+	OnDemand     bool                 `json:"on_demand"`
+	Pinned       []string             `json:"pinned,omitempty"`
+	Entries      map[string]FileEntry `json:"entries,omitempty"`
+	Known        map[string]string    `json:"known,omitempty"` // legacy: path -> hash
 }
 
 func DefaultStatePath(configPath string) string {
@@ -20,7 +37,9 @@ func DefaultStatePath(configPath string) string {
 func LoadState(path, localFolder string) (SyncState, error) {
 	st := SyncState{
 		LocalFolder: localFolder,
+		OnDemand:    true,
 		Known:       map[string]string{},
+		Entries:     map[string]FileEntry{},
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -30,15 +49,27 @@ func LoadState(path, localFolder string) (SyncState, error) {
 		return st, err
 	}
 	if err := json.Unmarshal(b, &st); err != nil {
-		return SyncState{LocalFolder: localFolder, Known: map[string]string{}}, nil
+		return SyncState{LocalFolder: localFolder, OnDemand: true, Known: map[string]string{}, Entries: map[string]FileEntry{}}, nil
 	}
 	if st.Known == nil {
 		st.Known = map[string]string{}
 	}
-	if st.LocalFolder != localFolder {
+	if st.Entries == nil {
+		st.Entries = map[string]FileEntry{}
+	}
+	// Migrate legacy known map into entries.
+	for rel, hash := range st.Known {
+		if _, ok := st.Entries[rel]; !ok {
+			st.Entries[rel] = FileEntry{Hash: hash, Availability: AvHydrated}
+		}
+	}
+	if localFolder != "" && st.LocalFolder != "" && st.LocalFolder != localFolder {
 		st.LocalFolder = localFolder
 		st.ChangeCursor = 0
 		st.Known = map[string]string{}
+		st.Entries = map[string]FileEntry{}
+	} else if localFolder != "" {
+		st.LocalFolder = localFolder
 	}
 	return st, nil
 }
@@ -46,6 +77,13 @@ func LoadState(path, localFolder string) (SyncState, error) {
 func SaveState(path string, st SyncState) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
+	}
+	// Keep known in sync for older readers.
+	if st.Known == nil {
+		st.Known = map[string]string{}
+	}
+	for rel, entry := range st.Entries {
+		st.Known[rel] = entry.Hash
 	}
 	b, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {

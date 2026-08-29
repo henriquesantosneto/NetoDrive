@@ -5,7 +5,11 @@
     <string name="username">Usuário</string>
     <string name="password">Senha</string>
     <string name="gallery_sync">Sincronizar galeria</string>
-    <string name="cache_mode">Modo cache (baixa sob demanda)</string>
+    <string name="cache_mode">Modo cache global (LRU; arquivos baixam ao abrir)</string>
+    <string name="pin_local">Fixar neste aparelho</string>
+    <string name="unpin_local">Liberar espaco (nuvem)</string>
+    <string name="download_now">Baixar agora</string>
+    <string name="file_options">Arquivo</string>
     <string name="open_remote">Abrir remoto</string>
     <string name="browse">Arquivos</string>
     <string name="cache_budget">Orçamento de cache (MB)</string>
