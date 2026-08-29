@@ -121,8 +121,9 @@ internal static class PlaceholderManager
         var full = FullPath(cfg, rel);
         if (!File.Exists(full))
             throw new FileNotFoundException($"arquivo nao encontrado: {rel}", full);
-        CfSetPinState(full, CF_PIN_STATE.CF_PIN_STATE_PINNED, CF_SET_PIN_FLAGS.CF_SET_PIN_FLAG_NONE).ThrowIfFailed();
-        Hydrate(cfg, rel);
+        CfPlaceholderOps.SetPinState(full, CF_PIN_STATE.CF_PIN_STATE_PINNED);
+        CfPlaceholderOps.Hydrate(full);
+        Console.WriteLine($"pinned: {rel}");
     }
 
     internal static void Dehydrate(AppConfig cfg, string rel)
@@ -130,8 +131,7 @@ internal static class PlaceholderManager
         var full = FullPath(cfg, rel);
         if (!File.Exists(full))
             return;
-        CfSetPinState(full, CF_PIN_STATE.CF_PIN_STATE_UNPINNED, CF_SET_PIN_FLAGS.CF_SET_PIN_FLAG_NONE).ThrowIfFailed();
-        CfDehydrate(full, CF_DEHYDRATE_FLAGS.CF_DEHYDRATE_FLAG_NONE).ThrowIfFailed();
+        CfPlaceholderOps.Dehydrate(full);
         Console.WriteLine($"dehydrated: {rel}");
     }
 
@@ -140,18 +140,7 @@ internal static class PlaceholderManager
         var full = FullPath(cfg, rel);
         if (!File.Exists(full))
             throw new FileNotFoundException($"arquivo nao encontrado: {rel}", full);
-        CfSetPinState(full, CF_PIN_STATE.CF_PIN_STATE_PINNED, CF_SET_PIN_FLAGS.CF_SET_PIN_FLAG_NONE).ThrowIfFailed();
-        // Trigger CFAPI hydration via the running provider (FETCH_DATA).
-        try
-        {
-            using var fs = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            var buf = new byte[4096];
-            _ = fs.Read(buf, 0, buf.Length);
-        }
-        catch (IOException ex)
-        {
-            Console.Error.WriteLine($"hydrate {rel}: {ex.Message} (provider -run ativo?)");
-        }
+        CfPlaceholderOps.Hydrate(full);
         Console.WriteLine($"hydrated: {rel}");
     }
 
