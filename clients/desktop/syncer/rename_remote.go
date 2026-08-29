@@ -61,9 +61,9 @@ func renameRemotePaths(c *Client, man *Manifest, from, to, remotePrefix string, 
 
 	if manifestHasPath(man, newRemote) {
 		syncLog("↪ rename ja aplicado: %s existe no servidor", newRemote)
-		_ = c.deleteRemoteIgnoreMissing(oldRemote)
+		_ = c.removeRemoteDuplicateIgnoreMissing(oldRemote)
 		if oldRemote != from {
-			_ = c.deleteRemoteIgnoreMissing(from)
+			_ = c.removeRemoteDuplicateIgnoreMissing(from)
 		}
 		return nil
 	}
@@ -79,7 +79,7 @@ func renameRemotePaths(c *Client, man *Manifest, from, to, remotePrefix string, 
 			}
 		}
 		if manifestHasPath(man, newRemote) {
-			_ = c.deleteRemoteIgnoreMissing(oldRemote)
+			_ = c.removeRemoteDuplicateIgnoreMissing(oldRemote)
 			return nil
 		}
 		return err
@@ -95,6 +95,18 @@ func renameRemotePaths(c *Client, man *Manifest, from, to, remotePrefix string, 
 	}
 
 	return fmt.Errorf("%w: atualize e reinicie o servidor NetoDrive", ErrRenameAPINotSupported)
+}
+
+func (c *Client) removeRemoteDuplicateIgnoreMissing(remotePath string) error {
+	err := c.RemoveRemote(remotePath)
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "not found") ||
+		strings.Contains(err.Error(), "404") {
+		return nil
+	}
+	return err
 }
 
 func (c *Client) deleteRemoteIgnoreMissing(remotePath string) error {
@@ -130,7 +142,7 @@ func (c *Client) renameViaStream(oldRemote, newRemote string) error {
 	if _, err := c.uploadStream(res.Body, size, newRemote, time.Now().UTC()); err != nil {
 		return err
 	}
-	if err := c.deleteRemoteIgnoreMissing(oldRemote); err != nil {
+	if err := c.removeRemoteDuplicateIgnoreMissing(oldRemote); err != nil {
 		fmt.Fprintf(os.Stderr, "aviso: rename remove %s: %v\n", oldRemote, err)
 	}
 	return nil
@@ -166,6 +178,7 @@ func (c *Client) uploadStream(r io.Reader, size int64, remotePath string, modTim
 
 func renameLocalState(localRoot string, st *SyncState, from, to string) {
 	_ = movePlaceholderMeta(localRoot, from, to)
+	_ = removePlaceholderQueueRel(localRoot, from)
 	st.Pinned = migratePinnedPaths(st.Pinned, from, to)
 	if h, ok := st.Known[from]; ok {
 		st.Known[to] = h

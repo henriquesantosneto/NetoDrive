@@ -57,6 +57,40 @@ internal static class LocalChangesQueue
         Console.WriteLine($"local modify enqueued: {rel}");
     }
 
+    internal static void ClearModify(AppConfig cfg, string rel)
+    {
+        rel = rel.Replace('\\', '/').Trim('/');
+        if (string.IsNullOrEmpty(rel))
+            return;
+
+        var path = PendingModifiesPath(cfg);
+        if (!File.Exists(path))
+            return;
+
+        var kept = new List<string>();
+        var removed = false;
+        foreach (var line in File.ReadAllLines(path))
+        {
+            var entry = line.Replace('\\', '/').Trim('/');
+            if (entry.Length == 0)
+                continue;
+            if (string.Equals(entry, rel, StringComparison.OrdinalIgnoreCase))
+            {
+                removed = true;
+                continue;
+            }
+            kept.Add(line);
+        }
+        if (!removed)
+            return;
+        if (kept.Count == 0)
+        {
+            File.Delete(path);
+            return;
+        }
+        File.WriteAllLines(path, kept);
+    }
+
     internal static void EnqueuePinOp(AppConfig cfg, string op, string rel)
     {
         rel = rel.Replace('\\', '/').Trim('/');

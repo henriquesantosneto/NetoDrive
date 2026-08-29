@@ -61,6 +61,10 @@ func planSync(local, remote, known map[string]string, opts PlanSyncOptions) sync
 		if _, inLocal := local[rel]; inLocal {
 			continue
 		}
+		if isLikelyRenamedAway(local, remote, known, rel) {
+			p.deleteRemote = append(p.deleteRemote, rel)
+			continue
+		}
 		if opts.PendingLocalDeletes != nil && opts.PendingLocalDeletes[rel] {
 			p.deleteRemote = append(p.deleteRemote, rel)
 			continue
@@ -77,4 +81,24 @@ func planSync(local, remote, known map[string]string, opts PlanSyncOptions) sync
 	}
 
 	return p
+}
+
+// isLikelyRenamedAway detects stale remote paths after Explorer renamed locally.
+func isLikelyRenamedAway(local, remote, known map[string]string, remoteRel string) bool {
+	remoteHash, ok := remote[remoteRel]
+	if !ok {
+		return false
+	}
+	if _, inLocal := local[remoteRel]; inLocal {
+		return false
+	}
+	for localRel, localHash := range local {
+		if localRel == remoteRel || localHash != remoteHash {
+			continue
+		}
+		if knownHash, wasKnown := known[localRel]; wasKnown && knownHash == remoteHash {
+			return true
+		}
+	}
+	return false
 }

@@ -175,6 +175,53 @@ internal static class PlaceholderQueue
         }
     }
 
+    internal static void RenameRel(AppConfig cfg, string fromRel, string toRel)
+    {
+        fromRel = fromRel.Replace('\\', '/').Trim('/');
+        toRel = toRel.Replace('\\', '/').Trim('/');
+        if (string.IsNullOrEmpty(fromRel) || string.IsNullOrEmpty(toRel) ||
+            string.Equals(fromRel, toRel, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var path = QueuePath(cfg);
+        List<string> lines;
+        lock (Gate)
+        {
+            lines = ReadAllLines(path);
+        }
+        if (lines.Count == 0)
+            return;
+
+        var changed = false;
+        for (var i = 0; i < lines.Count; i++)
+        {
+            try
+            {
+                var entry = JsonSerializer.Deserialize<PlaceholderQueueEntry>(lines[i]);
+                if (entry == null || string.IsNullOrWhiteSpace(entry.Rel))
+                    continue;
+                if (!string.Equals(entry.Rel.Replace('\\', '/').Trim('/'), fromRel, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                entry.Rel = toRel;
+                lines[i] = JsonSerializer.Serialize(entry);
+                changed = true;
+            }
+            catch
+            {
+                // keep line
+            }
+        }
+        if (!changed)
+            return;
+
+        lock (Gate)
+        {
+            Rewrite(path, lines);
+        }
+    }
+
     private static List<string> ReadAllLines(string path)
     {
         if (!File.Exists(path))
