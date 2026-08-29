@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>NetoDriveShell</AssemblyName>
+    <RootNamespace>NetoDriveShell</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="SharpShell" Version="2.7.2" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+</Project>

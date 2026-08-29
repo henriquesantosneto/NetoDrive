@@ -64,6 +64,40 @@ if (-not (Test-Path $cfg)) {
   notepad $cfg
 }
 
+# Build/install CFAPI provider + menu de contexto (requer .NET 8 SDK no Windows)
+$dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
+if ($dotnet) {
+  Write-Host "Compilando integracao nativa do Explorer (CFAPI + menu)..."
+  $providerDir = Join-Path $Root "NetoDriveProvider"
+  $shellDir = Join-Path $Root "NetoDriveShell"
+  if (Test-Path $providerDir) {
+    Push-Location $providerDir
+    dotnet publish -c Release -r win-x64 --self-contained false -o $InstallDir
+    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "Falha ao compilar netodrive-provider" }
+    Pop-Location
+    & (Join-Path $InstallDir "netodrive-provider.exe") -register -config $cfg
+  }
+  if (Test-Path $shellDir) {
+    Push-Location $shellDir
+    dotnet publish -f net48 -c Release -r win-x64 --self-contained false -o (Join-Path $InstallDir "shell")
+    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "Falha ao compilar NetoDriveShell" }
+    Pop-Location
+    $shellDll = Join-Path $InstallDir "shell\NetoDriveShell.dll"
+    if (Test-Path $shellDll) {
+      $regasm = Join-Path ${env:WINDIR} "Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe"
+      if (Test-Path $regasm) {
+        & $regasm /codebase $shellDll | Out-Null
+        Write-Host "Menu de contexto NetoDrive registrado."
+      } else {
+        Write-Host "RegAsm nao encontrado — menu de contexto nao registrado."
+      }
+    }
+  }
+} else {
+  Write-Host "AVISO: .NET SDK nao encontrado. Integracao nativa (clique/manter no dispositivo) nao instalada."
+  Write-Host "Instale .NET 8 SDK e rode Install-NetoDrive.ps1 novamente."
+}
+
 $desktop = [Environment]::GetFolderPath("Desktop")
 $shortcut = Join-Path $desktop "NetoDrive.lnk"
 $w = New-Object -ComObject WScript.Shell

@@ -3,6 +3,7 @@
 package syncer
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -39,9 +40,38 @@ func placeholderDiskPath(localRoot, rel string) string {
 	return placeholderPath(localRoot, rel) + ".lnk"
 }
 
+func providerExe() string {
+	localApp := os.Getenv("LOCALAPPDATA")
+	if localApp == "" {
+		return ""
+	}
+	p := filepath.Join(localApp, "NetoDrive", "netodrive-provider.exe")
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	return ""
+}
+
 func writePlatformPlaceholder(localRoot, rel string, meta placeholderMeta) error {
 	if err := writePlaceholderMeta(localRoot, rel, meta); err != nil {
 		return err
+	}
+	if exe := providerExe(); exe != "" {
+		cfg := defaultConfigForProvider()
+		args := []string{
+			"-placeholder", filepath.ToSlash(rel), meta.Hash, fmt.Sprintf("%d", meta.Size),
+		}
+		if cfg != "" {
+			args = append(args, "-config", cfg)
+		}
+		cmd := exec.Command(exe, args...)
+		if out, err := cmd.CombinedOutput(); err == nil {
+			_ = os.Remove(placeholderDiskPath(localRoot, rel))
+			_ = os.Remove(placeholderPath(localRoot, rel))
+			return nil
+		} else {
+			fmt.Fprintf(os.Stderr, "cfapi placeholder %s: %v (%s)\n", rel, err, strings.TrimSpace(string(out)))
+		}
 	}
 	lnk := placeholderDiskPath(localRoot, rel)
 	if err := os.MkdirAll(filepath.Dir(lnk), 0o755); err != nil {
@@ -73,7 +103,66 @@ func writePlatformPlaceholder(localRoot, rel string, meta placeholderMeta) error
 	return nil
 }
 
+func defaultConfigForProvider() string {
+	appData := os.Getenv("APPDATA")
+	if appData == "" {
+		return ""
+	}
+	return filepath.Join(appData, "NetoDrive", "netodrive.json")
+}
+
+func isCloudPlaceholder(path string) bool {
+	if providerExe() == "" {
+		return false
+	}
+	localRoot, rel, ok := findSyncRootForPath(path)
+	if !ok {
+		return false
+	}
+	if _, ok := readPlaceholderMetaForRel(localRoot, rel); !ok {
+		return false
+	}
+	// Sidecar present — cloud placeholder until fully hydrated (meta removed on hydrate).
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	return true
+}
+
+func findSyncRootForPath(path string) (localRoot, rel string, ok bool) {
+	cfg := defaultConfigForProvider()
+	if cfg == "" {
+		return "", "", false
+	}
+	b, err := os.ReadFile(cfg)
+	if err != nil {
+		return "", "", false
+	}
+	var doc struct {
+		LocalFolder string `json:"local_folder"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil || doc.LocalFolder == "" {
+		return "", "", false
+	}
+	localRoot, err = filepath.Abs(doc.LocalFolder)
+	if err != nil {
+		return "", "", false
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", "", false
+	}
+	rel, err = filepath.Rel(localRoot, abs)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", "", false
+	}
+	return localRoot, filepath.ToSlash(rel), true
+}
+
 func isPlatformPlaceholder(path string) bool {
+	if isCloudPlaceholder(path) {
+		return true
+	}
 	if strings.HasSuffix(strings.ToLower(path), ".lnk") {
 		return isNetoDriveShortcut(path)
 	}
