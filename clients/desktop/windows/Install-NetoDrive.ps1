@@ -185,19 +185,27 @@ if (-not (Test-Path $cfg)) {
   Write-Host "Config existente preservada: $cfg"
 }
 
-# CFAPI: evitar Stat repetido no sync root — marcar clone git no JSON
+# CFAPI: evitar Stat repetido no sync root - marcar clone git no JSON
 try {
+  if (-not (Test-Path -LiteralPath $cfg)) { throw 'config missing' }
   $cfgText = Get-Content -Raw -LiteralPath $cfg
   $cfgObj = $cfgText | ConvertFrom-Json
-  $lf = if ($cfgObj.local_folder) { $cfgObj.local_folder } elseif ($cfgObj.LocalFolder) { $cfgObj.LocalFolder } else { $null }
-  if ($lf -and (Test-Path -LiteralPath (Join-Path $lf ".git"))) {
-    if (-not ($cfgObj.PSObject.Properties.Name -contains 'is_repo_root')) {
+  $lf = $null
+  if ($cfgObj.local_folder) { $lf = $cfgObj.local_folder }
+  elseif ($cfgObj.LocalFolder) { $lf = $cfgObj.LocalFolder }
+  if ($lf -and (Test-Path -LiteralPath (Join-Path $lf '.git'))) {
+    $hasRepoFlag = $false
+    foreach ($p in $cfgObj.PSObject.Properties) {
+      if ($p.Name -eq 'is_repo_root') { $hasRepoFlag = $true; break }
+    }
+    if (-not $hasRepoFlag) {
       $cfgObj | Add-Member -NotePropertyName is_repo_root -NotePropertyValue $true -Force
       $cfgObj | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $cfg -Encoding UTF8
-      Write-Host "Config: is_repo_root=true (local_folder e clone git — necessario com CFAPI)."
+      Write-Host 'Config: is_repo_root=true (local_folder e clone git; necessario com CFAPI).'
     }
   }
-} catch {
+}
+catch {
   Write-Host "AVISO: nao foi possivel atualizar is_repo_root no config: $_" -ForegroundColor Yellow
 }
 
