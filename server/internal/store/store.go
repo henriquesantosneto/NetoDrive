@@ -14,6 +14,7 @@ import (
 type Store struct {
 	DB      *sql.DB
 	DataDir string
+	OnPurged FilePurgedHook
 }
 
 type User struct {
@@ -24,23 +25,27 @@ type User struct {
 }
 
 type FileMeta struct {
-	ID          int64     `json:"id"`
-	UserID      int64     `json:"user_id"`
-	Path        string    `json:"path"`
-	Name        string    `json:"name"`
-	IsDir       bool      `json:"is_dir"`
-	Size        int64     `json:"size"`
-	Hash        string    `json:"hash"`
-	Mime        string    `json:"mime"`
-	MTime       time.Time `json:"mtime"`
-	Deleted     bool      `json:"deleted"`
-	Version     int64     `json:"version"`
-	DeviceID    string    `json:"device_id,omitempty"`
-	GalleryKey  string    `json:"gallery_key,omitempty"`
-	Width       int       `json:"width,omitempty"`
-	Height      int       `json:"height,omitempty"`
-	TakenAt     *time.Time `json:"taken_at,omitempty"`
+	ID             int64     `json:"id"`
+	UserID         int64     `json:"user_id"`
+	Path           string    `json:"path"`
+	Name           string    `json:"name"`
+	IsDir          bool      `json:"is_dir"`
+	Size           int64     `json:"size"`
+	Hash           string    `json:"hash"`
+	StorageFileID  string    `json:"storage_file_id,omitempty"`
+	Mime           string    `json:"mime"`
+	MTime          time.Time `json:"mtime"`
+	Deleted        bool      `json:"deleted"`
+	Version        int64     `json:"version"`
+	DeviceID       string    `json:"device_id,omitempty"`
+	GalleryKey     string    `json:"gallery_key,omitempty"`
+	Width          int       `json:"width,omitempty"`
+	Height         int       `json:"height,omitempty"`
+	TakenAt        *time.Time `json:"taken_at,omitempty"`
 }
+
+// FilePurgedHook runs after a file row is permanently removed.
+type FilePurgedHook func(f *FileMeta)
 
 type Change struct {
 	ID      int64    `json:"id"`
@@ -127,7 +132,11 @@ CREATE INDEX IF NOT EXISTS idx_files_gallery ON files(user_id, gallery_key);
 CREATE INDEX IF NOT EXISTS idx_changes_user_id ON changes(user_id, id);
 `
 	_, err := s.DB.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+	_, _ = s.DB.Exec(`ALTER TABLE files ADD COLUMN storage_file_id TEXT NOT NULL DEFAULT ''`)
+	return nil
 }
 
 func (s *Store) BlobPath(hash string) string {
@@ -195,7 +204,7 @@ func scanFile(scanner interface {
 	var isDir, deleted int
 	var mtime, taken sql.NullString
 	err := scanner.Scan(
-		&f.ID, &f.UserID, &f.Path, &f.Name, &isDir, &f.Size, &f.Hash, &f.Mime,
+		&f.ID, &f.UserID, &f.Path, &f.Name, &isDir, &f.Size, &f.Hash, &f.StorageFileID, &f.Mime,
 		&mtime, &deleted, &f.Version, &f.DeviceID, &f.GalleryKey, &f.Width, &f.Height, &taken,
 	)
 	if err != nil {
@@ -217,7 +226,7 @@ func scanFile(scanner interface {
 
 func (s *Store) GetFileByPath(userID int64, path string) (*FileMeta, error) {
 	row := s.DB.QueryRow(`
-SELECT id, user_id, path, name, is_dir, size, hash, mime, mtime, deleted, version,
+SELECT id, user_id, path, name, is_dir, size, hash, storage_file_id, mime, mtime, deleted, version,
        device_id, gallery_key, width, height, taken_at
 FROM files WHERE user_id=? AND path=?`, userID, path)
 	f, err := scanFile(row)
@@ -229,7 +238,7 @@ FROM files WHERE user_id=? AND path=?`, userID, path)
 
 func (s *Store) GetFileByID(userID, id int64) (*FileMeta, error) {
 	row := s.DB.QueryRow(`
-SELECT id, user_id, path, name, is_dir, size, hash, mime, mtime, deleted, version,
+SELECT id, user_id, path, name, is_dir, size, hash, storage_file_id, mime, mtime, deleted, version,
        device_id, gallery_key, width, height, taken_at
 FROM files WHERE user_id=? AND id=?`, userID, id)
 	f, err := scanFile(row)
@@ -241,7 +250,7 @@ FROM files WHERE user_id=? AND id=?`, userID, id)
 
 func (s *Store) ListChildren(userID int64, parent string) ([]FileMeta, error) {
 	rows, err := s.DB.Query(`
-SELECT id, user_id, path, name, is_dir, size, hash, mime, mtime, deleted, version,
+SELECT id, user_id, path, name, is_dir, size, hash, storage_file_id, mime, mtime, deleted, version,
        device_id, gallery_key, width, height, taken_at
 FROM files
 WHERE user_id=? AND deleted=0 AND path LIKE ? AND path NOT LIKE ?
@@ -291,7 +300,7 @@ func containsSlash(s string) bool {
 
 func (s *Store) ListAllActive(userID int64) ([]FileMeta, error) {
 	rows, err := s.DB.Query(`
-SELECT id, user_id, path, name, is_dir, size, hash, mime, mtime, deleted, version,
+SELECT id, user_id, path, name, is_dir, size, hash, storage_file_id, mime, mtime, deleted, version,
        device_id, gallery_key, width, height, taken_at
 FROM files WHERE user_id=? AND deleted=0 ORDER BY path`, userID)
 	if err != nil {
@@ -329,14 +338,15 @@ func (s *Store) UpsertFile(f *FileMeta) error {
 	}
 
 	res, err := tx.Exec(`
-INSERT INTO files(user_id, path, name, is_dir, size, hash, mime, mtime, deleted, version,
+INSERT INTO files(user_id, path, name, is_dir, size, hash, storage_file_id, mime, mtime, deleted, version,
                   device_id, gallery_key, width, height, taken_at)
-VALUES(?,?,?,?,?,?,?,?,0,?,?,?,?,?,?)
+VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?)
 ON CONFLICT(user_id, path) DO UPDATE SET
   name=excluded.name,
   is_dir=excluded.is_dir,
   size=excluded.size,
   hash=excluded.hash,
+  storage_file_id=excluded.storage_file_id,
   mime=excluded.mime,
   mtime=excluded.mtime,
   deleted=0,
@@ -347,7 +357,7 @@ ON CONFLICT(user_id, path) DO UPDATE SET
   height=excluded.height,
   taken_at=excluded.taken_at
 `,
-		f.UserID, f.Path, f.Name, boolToInt(f.IsDir), f.Size, f.Hash, f.Mime,
+		f.UserID, f.Path, f.Name, boolToInt(f.IsDir), f.Size, f.Hash, f.StorageFileID, f.Mime,
 		f.MTime.UTC().Format(time.RFC3339Nano), f.Version, f.DeviceID, f.GalleryKey,
 		f.Width, f.Height, taken,
 	)
@@ -404,7 +414,7 @@ func (s *Store) SoftDelete(userID int64, path string) (*FileMeta, error) {
 
 func (s *Store) ListTrash(userID int64) ([]FileMeta, error) {
 	rows, err := s.DB.Query(`
-SELECT id, user_id, path, name, is_dir, size, hash, mime, mtime, deleted, version,
+SELECT id, user_id, path, name, is_dir, size, hash, storage_file_id, mime, mtime, deleted, version,
        device_id, gallery_key, width, height, taken_at
 FROM files WHERE user_id=? AND deleted=1 ORDER BY mtime DESC`, userID)
 	if err != nil {
@@ -482,7 +492,10 @@ func (s *Store) Purge(userID int64, path string) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	if hash != "" && !f.IsDir {
+	if s.OnPurged != nil {
+		s.OnPurged(f)
+	}
+	if hash != "" && !f.IsDir && f.StorageFileID == "" {
 		s.maybeRemoveBlob(hash)
 	}
 	return nil
@@ -546,7 +559,7 @@ func (s *Store) SoftDeleteMany(userID int64, paths []string) (int, error) {
 func (s *Store) ListDescendants(userID int64, prefix string, includeDeleted bool) ([]FileMeta, error) {
 	prefix = strings.Trim(prefix, "/")
 	q := `
-SELECT id, user_id, path, name, is_dir, size, hash, mime, mtime, deleted, version,
+SELECT id, user_id, path, name, is_dir, size, hash, storage_file_id, mime, mtime, deleted, version,
        device_id, gallery_key, width, height, taken_at
 FROM files WHERE user_id=? AND path LIKE ?`
 	args := []any{userID, prefix + "/%"}
@@ -626,7 +639,7 @@ func (s *Store) ChangesSince(userID, sinceID int64, limit int) ([]Change, error)
 	}
 	rows, err := s.DB.Query(`
 SELECT c.id, c.user_id, c.file_id, c.action, c.version,
-       f.id, f.user_id, f.path, f.name, f.is_dir, f.size, f.hash, f.mime, f.mtime, f.deleted, f.version,
+       f.id, f.user_id, f.path, f.name, f.is_dir, f.size, f.hash, f.storage_file_id, f.mime, f.mtime, f.deleted, f.version,
        f.device_id, f.gallery_key, f.width, f.height, f.taken_at
 FROM changes c
 JOIN files f ON f.id = c.file_id
@@ -645,7 +658,7 @@ LIMIT ?`, userID, sinceID, limit)
 		var mtime, taken sql.NullString
 		if err := rows.Scan(
 			&c.ID, &c.UserID, &c.FileID, &c.Action, &c.Version,
-			&c.File.ID, &c.File.UserID, &c.File.Path, &c.File.Name, &isDir, &c.File.Size, &c.File.Hash, &c.File.Mime,
+			&c.File.ID, &c.File.UserID, &c.File.Path, &c.File.Name, &isDir, &c.File.Size, &c.File.Hash, &c.File.StorageFileID, &c.File.Mime,
 			&mtime, &deleted, &c.File.Version, &c.File.DeviceID, &c.File.GalleryKey, &c.File.Width, &c.File.Height, &taken,
 		); err != nil {
 			return nil, err
@@ -671,7 +684,7 @@ func (s *Store) ListGallery(userID int64, limit, offset int) ([]FileMeta, error)
 		limit = 100
 	}
 	rows, err := s.DB.Query(`
-SELECT id, user_id, path, name, is_dir, size, hash, mime, mtime, deleted, version,
+SELECT id, user_id, path, name, is_dir, size, hash, storage_file_id, mime, mtime, deleted, version,
        device_id, gallery_key, width, height, taken_at
 FROM files
 WHERE user_id=? AND deleted=0 AND is_dir=0

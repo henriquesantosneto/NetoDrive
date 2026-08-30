@@ -4,13 +4,14 @@ go 1.22
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/google/uuid v1.6.0
+	github.com/klauspost/compress v1.17.9
 	golang.org/x/crypto v0.28.0
 	modernc.org/sqlite v1.33.1
 )
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect

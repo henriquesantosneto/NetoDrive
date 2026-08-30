@@ -13,6 +13,7 @@ type Config struct {
 	AdminUser      string
 	AdminPass      string
 	MaxUploadBytes int64
+	ChunkStorage   bool
 }
 
 func Load() Config {
@@ -24,6 +25,7 @@ func Load() Config {
 		AdminUser:      getenv("NETODRIVE_ADMIN_USER", "admin"),
 		AdminPass:      getenv("NETODRIVE_ADMIN_PASS", "admin123"),
 		MaxUploadBytes: getenvInt64("NETODRIVE_MAX_UPLOAD", 5<<30), // 5 GiB
+		ChunkStorage:   getenv("NETODRIVE_CHUNK_STORAGE", "") == "1",
 	}
 }
 

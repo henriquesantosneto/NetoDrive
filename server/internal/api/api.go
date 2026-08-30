@@ -16,13 +16,15 @@ import (
 
 	"github.com/netodrive/server/internal/auth"
 	"github.com/netodrive/server/internal/config"
+	"github.com/netodrive/server/internal/storage"
 	"github.com/netodrive/server/internal/store"
 )
 
 type Server struct {
-	Cfg   config.Config
-	Store *store.Store
-	Auth  *auth.Service
+	Cfg          config.Config
+	Store        *store.Store
+	Auth         *auth.Service
+	ChunkStorage *storage.Service
 }
 
 func New(cfg config.Config, st *store.Store, a *auth.Service) *Server {
@@ -40,6 +42,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/sync/manifest", s.withAuth(s.handleManifest))
 	mux.HandleFunc("/api/sync/changes", s.withAuth(s.handleChanges))
 	mux.HandleFunc("/api/sync/upload", s.withAuth(s.handleUpload))
+	mux.HandleFunc("/api/storage/gc", s.withAuth(s.handleStorageGC))
+	mux.HandleFunc("/api/storage/stats", s.withAuth(s.handleStorageStats))
 	mux.HandleFunc("/api/sync/rename", s.withAuth(s.handleSyncRename))
 	mux.HandleFunc("/api/sync/download/", s.withAuth(s.handleDownload))
 	mux.HandleFunc("/api/open/", s.withAuth(s.handleOpen))
@@ -341,20 +345,34 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hash := hex.EncodeToString(h.Sum(nil))
-	if err := s.Store.EnsureBlobDir(hash); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	blob := s.Store.BlobPath(hash)
-	if _, err := os.Stat(blob); errors.Is(err, os.ErrNotExist) {
-		_ = tmp.Close()
-		if err := os.Rename(tmp.Name(), blob); err != nil {
-			// cross-device fallback
-			if err := copyFile(tmp.Name(), blob); err != nil {
-				writeErr(w, http.StatusInternalServerError, "store blob failed")
-				return
+	var storageFileID string
+	if s.ChunkStorage != nil {
+		if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+			writeErr(w, http.StatusInternalServerError, "rewind temp failed")
+			return
+		}
+		man, err := s.ChunkStorage.Put(r.Context(), filepath.Base(filePath), tmp)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "chunk storage failed: "+err.Error())
+			return
+		}
+		storageFileID = man.FileID
+	} else {
+		if err := s.Store.EnsureBlobDir(hash); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		blob := s.Store.BlobPath(hash)
+		if _, err := os.Stat(blob); errors.Is(err, os.ErrNotExist) {
+			_ = tmp.Close()
+			if err := os.Rename(tmp.Name(), blob); err != nil {
+				// cross-device fallback
+				if err := copyFile(tmp.Name(), blob); err != nil {
+					writeErr(w, http.StatusInternalServerError, "store blob failed")
+					return
+				}
+				_ = os.Remove(tmp.Name())
 			}
-			_ = os.Remove(tmp.Name())
 		}
 	}
 
@@ -388,13 +406,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	meta := &store.FileMeta{
-		UserID:     c.UserID,
-		Path:       filePath,
-		Name:       filepath.Base(filePath),
-		IsDir:      false,
-		Size:       n,
-		Hash:       hash,
-		Mime:       mime,
+		UserID:        c.UserID,
+		Path:          filePath,
+		Name:          filepath.Base(filePath),
+		IsDir:         false,
+		Size:          n,
+		Hash:          hash,
+		StorageFileID: storageFileID,
+		Mime:          mime,
 		MTime:      mtime,
 		DeviceID:   deviceID,
 		GalleryKey: galleryKey,
@@ -450,7 +469,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
-	serveBlob(w, r, s.Store.BlobPath(f.Hash), f)
+	s.serveFileContent(w, r, f)
 }
 
 func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
@@ -464,6 +483,27 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Disposition", "inline; filename=\""+f.Name+"\"")
+	s.serveFileContent(w, r, f)
+}
+
+func (s *Server) serveFileContent(w http.ResponseWriter, r *http.Request, f *store.FileMeta) {
+	if s.ChunkStorage != nil && f.StorageFileID != "" {
+		rc, size, err := s.ChunkStorage.OpenFile(r.Context(), f.StorageFileID)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, "chunk manifest missing")
+			return
+		}
+		defer rc.Close()
+		w.Header().Set("Content-Type", f.Mime)
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("X-Content-Hash", f.Hash)
+		w.Header().Set("ETag", `"`+f.Hash+`"`)
+		http.ServeContent(w, r, f.Name, f.MTime, struct {
+			io.ReadSeeker
+		}{rc})
+		_ = size
+		return
+	}
 	serveBlob(w, r, s.Store.BlobPath(f.Hash), f)
 }
 

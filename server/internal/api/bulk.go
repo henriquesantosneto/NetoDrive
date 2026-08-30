@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"os"
 	"path"
 	"strings"
 	"time"
@@ -132,8 +131,7 @@ func (s *Server) handleBulkDownload(w http.ResponseWriter, r *http.Request) {
 		if f.IsDir || f.Hash == "" {
 			continue
 		}
-		blob := s.Store.BlobPath(f.Hash)
-		src, err := os.Open(blob)
+		src, err := s.openStoredFile(f)
 		if err != nil {
 			continue
 		}
