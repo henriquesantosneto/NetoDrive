@@ -25,7 +25,22 @@ func Load() Config {
 		AdminUser:      getenv("NETODRIVE_ADMIN_USER", "admin"),
 		AdminPass:      getenv("NETODRIVE_ADMIN_PASS", "admin123"),
 		MaxUploadBytes: getenvInt64("NETODRIVE_MAX_UPLOAD", 5<<30), // 5 GiB
-		ChunkStorage:   getenv("NETODRIVE_CHUNK_STORAGE", "") == "1",
+		ChunkStorage:   getenvBool("NETODRIVE_CHUNK_STORAGE", true),
+	}
+}
+
+func getenvBool(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	switch v {
+	case "1", "true", "TRUE", "yes", "YES", "on", "ON":
+		return true
+	case "0", "false", "FALSE", "no", "NO", "off", "OFF":
+		return false
+	default:
+		return fallback
 	}
 }
 
