@@ -4,11 +4,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/netodrive/server/internal/api"
 	"github.com/netodrive/server/internal/auth"
 	"github.com/netodrive/server/internal/config"
+	"github.com/netodrive/server/internal/storage"
 	"github.com/netodrive/server/internal/store"
 )
 
@@ -30,6 +32,21 @@ func main() {
 	}
 
 	srv := api.New(cfg, st, authSvc)
+	if cfg.ChunkStorage {
+		root := filepath.Join(cfg.DataDir, "chunk-storage")
+		chunkSvc, err := storage.Open(storage.Config{
+			RootDir: root,
+			DBPath:  filepath.Join(root, "storage.db"),
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer chunkSvc.Close()
+		srv.ChunkStorage = chunkSvc
+		srv.AttachChunkPurgeHook()
+		log.Printf("chunk storage enabled at %s", root)
+	}
+
 	httpSrv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           srv.Routes(),
